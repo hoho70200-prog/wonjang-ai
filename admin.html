@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>대시보드 — 원장님 AI</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:18px 0;}
+  .stat{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px;}
+  .stat .k{font-size:13.5px; color:var(--ink-soft);}
+  .stat .v{font-size:29px; font-weight:700; line-height:1.25; margin-top:2px;}
+  .stat .n{font-size:13px; color:var(--ink-faint);}
+
+  .fun{margin:6px 0 0;}
+  .fun .r{display:flex; align-items:center; gap:12px; margin-bottom:9px;}
+  .fun .lb{width:150px; flex:none; font-size:15px; color:var(--ink-soft);}
+  .fun .tr{flex:1; height:26px; background:var(--line-soft); border-radius:5px; overflow:hidden;}
+  .fun .fl{height:100%; background:var(--accent); border-radius:5px; min-width:2px; transition:width .5s;}
+  .fun .vv{width:96px; flex:none; text-align:right; font-size:15px; font-weight:600;}
+  .fun .vv small{font-weight:400; color:var(--ink-faint);}
+
+  table{width:100%; border-collapse:collapse; font-size:15px;}
+  th,td{padding:9px 8px; text-align:left; border-bottom:1px solid var(--line-soft);}
+  th{font-size:13.5px; color:var(--ink-soft); font-weight:600;}
+  td.n{text-align:right; font-variant-numeric:tabular-nums;}
+  .mini{height:8px; background:var(--line-soft); border-radius:4px; overflow:hidden; min-width:60px;}
+  .mini i{display:block; height:100%; background:var(--accent);}
+  .drop{color:var(--warm); font-weight:600;}
+
+  .spark{display:flex; align-items:flex-end; gap:3px; height:70px; margin:10px 0 4px;}
+  .spark i{flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:2px; opacity:.85;}
+
+  .quote-fb{background:var(--white); border-left:3px solid var(--warm); border-radius:0 8px 8px 0;
+            padding:13px 16px; margin:0 0 10px; font-size:16px;}
+  .quote-fb .m{font-size:13px; color:var(--ink-faint); margin-top:5px;}
+  h2.sec{font-size:20px; margin:38px 0 4px;}
+  p.secd{color:var(--ink-soft); font-size:15px; margin:0 0 12px;}
+  .setup{background:var(--warm-soft); border:1px solid #F0D8C4; border-radius:12px; padding:20px 22px;}
+  .setup code{background:#fff; padding:2px 6px; border-radius:4px; font-family:var(--mono); font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="wrap-wide">
+
+<div id="login" style="display:none">
+  <header><div class="series">관리자 전용</div><h1>대시보드</h1></header>
+  <div class="card" style="max-width:420px">
+    <label>이메일</label>
+    <input type="email" id="em" autocomplete="username">
+    <label>비밀번호</label>
+    <input type="password" id="pw" autocomplete="current-password">
+    <div class="btn-row"><button class="btn" id="go">들어가기</button></div>
+    <p id="lerr" style="color:#B3392F; font-size:15px; margin:12px 0 0"></p>
+  </div>
+</div>
+
+<div id="setup" style="display:none">
+  <header><h1>아직 연결 전입니다</h1></header>
+  <div class="setup">
+    <p style="margin:0 0 12px"><b>assets/app.js</b> 맨 위 <code>CONFIG</code>에
+       Supabase 주소와 anon 키를 넣으면 이 화면이 대시보드로 바뀝니다.</p>
+    <p style="margin:0; color:var(--ink-soft)">순서는 <b>배포안내.md</b>에 적어 두었습니다.</p>
+  </div>
+</div>
+
+<div id="dash" style="display:none">
+  <header>
+    <div class="series">원장님 AI · 관리자</div>
+    <h1>얼마나 읽고 있나</h1>
+    <div class="btn-row">
+      <select id="days" style="width:auto">
+        <option value="7">최근 7일</option>
+        <option value="30" selected>최근 30일</option>
+        <option value="90">최근 90일</option>
+        <option value="3650">전체 기간</option>
+      </select>
+      <button class="btn-ghost" onclick="loadAll()">새로 고침</button>
+      <button class="btn-ghost" onclick="logout()">나가기</button>
+    </div>
+  </header>
+
+  <div class="grid" id="stats"></div>
+
+  <h2 class="sec">깔때기</h2>
+  <p class="secd">위에서 아래로 얼마나 새는지. <b>부탁 복사</b>가 실제로 AI를 써 봤다는 가장 강한 신호입니다.</p>
+  <div class="card"><div class="fun" id="funnel"></div></div>
+
+  <h2 class="sec">얼마나 내려 읽었나</h2>
+  <p class="secd">한 사람이 도달한 가장 깊은 지점입니다. “끝까지”가 완독한 사람입니다.</p>
+  <div class="card"><div class="fun" id="depth"></div></div>
+
+  <h2 class="sec">어디서 멈추나</h2>
+  <p class="secd">연 사람 대비 끝낸 사람. <span class="drop">주황색</span>은 이탈이 특히 큰 곳 — 그 장에 문제가 있다는 뜻입니다.</p>
+  <div class="card" style="padding:8px 20px"><table id="chapters"></table></div>
+
+  <h2 class="sec">날짜별</h2>
+  <div class="card"><div class="spark" id="spark"></div>
+    <p style="margin:0; font-size:14px; color:var(--ink-faint)" id="sparkl"></p></div>
+
+  <h2 class="sec">제일 오래 붙잡은 서류</h2>
+  <p class="secd">원장님들이 직접 적어 주신 것. <b>여기가 서비스의 재료입니다.</b></p>
+  <div class="card" style="padding:8px 20px"><table id="docs"></table></div>
+
+  <h2 class="sec">막혔던 곳</h2>
+  <p class="secd">최근 순서로 50건.</p>
+  <div id="fbs"></div>
+
+  <footer>이 화면은 로그인한 사람만 볼 수 있습니다.</footer>
+</div>
+
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+const API = () => CONFIG.SUPABASE_URL.replace(/\/$/, "");
+let TOKEN = sessionStorage.getItem("wai_tok") || "";
+
+function headers(){
+  return { "Content-Type":"application/json",
+           "apikey": CONFIG.SUPABASE_ANON_KEY,
+           "Authorization": "Bearer " + (TOKEN || CONFIG.SUPABASE_ANON_KEY) };
+}
+
+async function rpc(fn, args){
+  const r = await fetch(`${API()}/rest/v1/rpc/${fn}`,
+    { method:"POST", headers: headers(), body: JSON.stringify(args || {}) });
+  if(r.status === 401){ logout(); throw new Error("다시 로그인해 주세요"); }
+  if(!r.ok) throw new Error(fn + " " + r.status);
+  return r.json();
+}
+
+async function rows(path){
+  const r = await fetch(`${API()}/rest/v1/${path}`, { headers: headers() });
+  if(!r.ok) throw new Error(path + " " + r.status);
+  return r.json();
+}
+
+async function login(){
+  const em = $("#em").value.trim(), pw = $("#pw").value;
+  $("#lerr").textContent = "";
+  try{
+    const r = await fetch(`${API()}/auth/v1/token?grant_type=password`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "apikey": CONFIG.SUPABASE_ANON_KEY },
+      body: JSON.stringify({ email: em, password: pw })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.access_token){
+      $("#lerr").textContent = "이메일이나 비밀번호가 맞지 않습니다."; return;
+    }
+    TOKEN = j.access_token;
+    sessionStorage.setItem("wai_tok", TOKEN);
+    show("dash"); loadAll();
+  }catch(e){ $("#lerr").textContent = "연결하지 못했습니다. 주소 설정을 확인해 주세요."; }
+}
+
+function logout(){
+  TOKEN = ""; sessionStorage.removeItem("wai_tok"); show("login");
+}
+
+function show(which){
+  ["login","setup","dash"].forEach(i => $("#" + i).style.display = i === which ? "block" : "none");
+}
+
+const num = n => (n == null ? "—" : Number(n).toLocaleString("ko-KR"));
+
+function statCard(k, v, n){
+  return `<div class="stat"><div class="k">${k}</div><div class="v">${num(v)}</div>
+          <div class="n">${n || ""}</div></div>`;
+}
+
+function funnelRows(el, data, total){
+  const max = total || Math.max(1, ...data.map(d => d[1]));
+  $(el).innerHTML = data.map(([label, v]) => {
+    const pct = max ? Math.round(v / max * 100) : 0;
+    return `<div class="r"><div class="lb">${esc(label)}</div>
+      <div class="tr"><div class="fl" style="width:${pct}%"></div></div>
+      <div class="vv">${num(v)} <small>${pct}%</small></div></div>`;
+  }).join("");
+}
+
+async function loadAll(){
+  const d = +$("#days").value;
+  try{
+    const [ov, ch, dy, dp, dc, fb] = await Promise.all([
+      rpc("stats_overview", { days:d }),
+      rpc("stats_chapters", { days:d }),
+      rpc("stats_daily",    { days:d }),
+      rpc("stats_depth",    { days:d }),
+      rpc("stats_docs",     { days:Math.max(d,90) }),
+      rows("feedback?select=created_at,far,stuck,doc,center&order=created_at.desc&limit=50")
+    ]);
+
+    $("#stats").innerHTML =
+      statCard("들어온 사람", ov.visitors, "기기 기준") +
+      statCard("소설을 연 사람", ov.opened_novel) +
+      statCard("끝까지 읽은 사람", ov.finished_novel,
+               ov.opened_novel ? Math.round(ov.finished_novel / ov.opened_novel * 100) + "% 완독" : "") +
+      statCard("실습을 연 사람", ov.opened_prac) +
+      statCard("부탁을 복사한 사람", ov.copied, "실행한 증거") +
+      statCard("피드백", ov.feedback, "건");
+
+    funnelRows("#funnel", [
+      ["들어옴",        ov.visitors],
+      ["소설 폄",       ov.opened_novel],
+      ["소설 끝냄",     ov.finished_novel],
+      ["실습 폄",       ov.opened_prac],
+      ["부탁 복사",     ov.copied],
+      ["AI 열기",       ov.opened_ai],
+      ["인쇄",          ov.printed]
+    ], ov.visitors);
+
+    funnelRows("#depth", (dp || []).map(r => [r.depth, r.people]));
+
+    const kindName = { novel:"소설", concept:"개념서", practice:"실습" };
+    $("#chapters").innerHTML =
+      `<tr><th>구분</th><th>장</th><th class="n">연 사람</th><th class="n">끝낸 사람</th>
+           <th style="width:110px">완료율</th></tr>` +
+      (ch || []).map(r => {
+        const pct = r.opened ? Math.round(r.finished / r.opened * 100) : 0;
+        return `<tr><td>${r.part}부 ${kindName[r.kind] || r.kind}</td>
+          <td>${esc(r.chapter)}</td>
+          <td class="n">${num(r.opened)}</td>
+          <td class="n">${num(r.finished)}</td>
+          <td><div class="mini"><i style="width:${pct}%"></i></div>
+              <span style="font-size:13px;${pct < 40 ? "color:var(--warm);font-weight:600" : "color:var(--ink-faint)"}">${pct}%</span></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="5" style="color:var(--ink-faint)">아직 자료가 없습니다.</td></tr>`;
+
+    const mx = Math.max(1, ...(dy || []).map(r => r.visitors));
+    $("#spark").innerHTML = (dy || []).map(r =>
+      `<i style="height:${Math.round(r.visitors / mx * 100)}%" title="${r.day} · ${r.visitors}명"></i>`).join("")
+      || `<span style="color:var(--ink-faint);font-size:15px">아직 자료가 없습니다.</span>`;
+    $("#sparkl").textContent = (dy && dy.length)
+      ? `${dy[0].day} ~ ${dy[dy.length-1].day} · 하루 최대 ${mx}명` : "";
+
+    $("#docs").innerHTML =
+      `<tr><th>서류</th><th class="n">횟수</th></tr>` +
+      (dc || []).map(r => `<tr><td>${esc(r.doc)}</td><td class="n">${num(r.n)}</td></tr>`).join("")
+      || `<tr><td colspan="2" style="color:var(--ink-faint)">아직 없습니다.</td></tr>`;
+
+    $("#fbs").innerHTML = (fb || []).filter(f => (f.stuck || "").trim()).map(f =>
+      `<div class="quote-fb">${esc(f.stuck)}
+        <div class="m">${(f.created_at || "").slice(0,10)}
+          ${f.far ? " · " + esc(f.far) : ""}${f.center ? " · " + esc(f.center) : ""}</div></div>`).join("")
+      || `<p style="color:var(--ink-faint)">아직 없습니다.</p>`;
+
+  }catch(e){
+    toast(e.message || "불러오지 못했습니다");
+  }
+}
+
+(function(){
+  if(!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY){ show("setup"); return; }
+  $("#go").onclick = login;
+  $("#pw").addEventListener("keydown", e => { if(e.key === "Enter") login(); });
+  $("#days").addEventListener("change", loadAll);
+  if(TOKEN){ show("dash"); loadAll(); } else { show("login"); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>읽기 — 원장님 AI</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .fsize{display:flex; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:none;}
+  .fsize button{background:#fff; color:var(--ink-soft); padding:5px 11px; font-size:13px;
+                border-radius:0; border-right:1px solid var(--line);}
+  .fsize button:last-child{border-right:0; font-size:17px;}
+  .fsize button.on{background:var(--accent); color:#fff;}
+  body.f1{font-size:17px;} body.f2{font-size:19.5px;} body.f3{font-size:22px;}
+  body.f2 .body p, body.f3 .body p{line-height:1.85;}
+</style>
+</head>
+<body class="f1">
+
+<div class="wrap">
+  <header id="head"></header>
+  <div class="body" id="body"><div class="loading">불러오는 중…</div></div>
+  <div id="after"></div>
+  <footer>
+    「영란 원장, AI와 일하다」 · 개인이 만들어 무료로 나누는 자료입니다
+  </footer>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+const KIND = qs("kind") === "concept" ? "concept" : "novel";
+const PART = parseInt(qs("part") || "1", 10);
+const CH   = parseInt(qs("ch") || "1", 10);
+
+function blockHtml(b){
+  switch(b.t){
+    case "h":     return `<h2>${esc(b.x)}</h2>`;
+    case "quote": return `<div class="quote">${(b.x||[]).map(l=>`<div>${esc(l)}</div>`).join("")}</div>`;
+    case "note":  return `<div class="note"><b class="h">${esc(b.h)}</b>${esc(b.x)}</div>`;
+    case "blank": return `<div class="blank"></div>`;
+    case "check": return `<label class="ck"><input type="checkbox"> <span>${esc(b.x)}</span></label>`;
+    case "prompt":
+      return `<div class="pbox"><div class="plabel">AI에 그대로 쳐 보세요</div>
+        <pre>${esc(b.x)}</pre>
+        <div class="btn-row"><button class="btn-copy" data-copy="${esc(b.x)}">복사하기</button></div></div>`;
+    default:      return `<p>${esc(b.x)}</p>`;
+  }
+}
+
+function renderChecks(html){
+  // 잇달아 나오는 체크 항목을 한 상자로 묶습니다
+  return html.replace(/(<label class="ck">[\s\S]*?<\/label>\s*)+/g,
+    m => `<div class="check"><h3>확인하고 넘어가기</h3>${m}</div>`);
+}
+
+function navCard(item, label){
+  if(!item) return "";
+  return `<a href="${item.href}" onclick="track('next_click',{kind:'${item.kind}'})">
+      <small>${esc(label)}</small><b>${esc(item.title)}</b></a>`;
+}
+
+(async function(){
+  let data, idx;
+  try{
+    [data, idx] = await Promise.all([Data.part(PART), Data.index()]);
+  }catch(e){ fail("이 장을 불러오지 못했습니다."); return; }
+
+  const list = data[KIND] || [];
+  const i = list.findIndex(c => c.ch === CH);
+  if(i < 0){ fail("이 장을 찾지 못했습니다."); return; }
+  const c = list[i];
+
+  const partTitle = (idx.parts.find(p => p.n === PART) || {}).title || "";
+  const kindName = KIND === "novel" ? "소설" : "개념서";
+  const chLabel  = c.ch === 99 ? "부록" : c.ch + "장";
+
+  topBar("index.html", "목차", `${PART}부 · ${kindName} ${chLabel}`);
+
+  // 글자 크기
+  const fs = document.createElement("div");
+  fs.className = "fsize";
+  fs.innerHTML = `<button data-f="f1">가</button><button data-f="f2">가</button><button data-f="f3">가</button>`;
+  $(".top-in").appendChild(fs);
+  const saved = Store.get("fsize", "f1");
+  document.body.className = saved;
+  $$(".fsize button").forEach(b => {
+    if(b.dataset.f === saved) b.classList.add("on");
+    b.onclick = () => {
+      document.body.className = b.dataset.f;
+      Store.set("fsize", b.dataset.f);
+      $$(".fsize button").forEach(x => x.classList.toggle("on", x === b));
+      track("fontsize", { value: b.dataset.f });
+    };
+  });
+
+  document.title = `${chLabel} ${c.title} — 원장님 AI`;
+
+  $("#head").innerHTML = `
+    <div class="series">${esc(KIND === "novel"
+        ? `「영란 원장, AI와 일하다」 · ${PART}부 ${partTitle}`
+        : `「원장실의 AI」 · ${PART}편 개념서`)}</div>
+    <h1 class="small">${esc(chLabel)} · ${esc(c.title)}</h1>
+    ${c.sub ? `<p class="sub">${esc(c.sub)}</p>` : ""}
+    <div class="meta">
+      <span><b>읽는 시간</b> 약 ${c.minutes}분</span>
+      ${c.pair ? `<span><b>짝꿍</b> ${esc(c.pair)}</span>` : ""}
+    </div>`;
+
+  $("#body").innerHTML = renderChecks(c.blocks.map(blockHtml).join(""));
+
+  $$("[data-copy]").forEach(b => b.onclick = () => {
+    copyText(b.dataset.copy);
+    track("prompt_copy", { part: PART, chapter: CH, kind: KIND });
+  });
+
+  // 다음으로
+  const nx = list[i + 1];
+  const other = KIND === "novel" ? "concept" : "novel";
+  const twin = (data[other] || []).find(x => x.ch === c.ch);
+
+  const cards = [];
+  if(nx) cards.push({ href:`read.html?kind=${KIND}&part=${PART}&ch=${nx.ch}`, kind:KIND,
+                      title:`${nx.ch === 99 ? "부록" : nx.ch + "장"} · ${nx.title}` });
+  if(twin) cards.push({ href:`read.html?kind=${other}&part=${PART}&ch=${twin.ch}`, kind:other,
+                        title:`${twin.ch}장 · ${twin.title}` });
+
+  $("#after").innerHTML = `
+    <div class="btn-row" style="margin-top:34px">
+      <button class="btn" id="done">읽었습니다</button>
+      <button class="btn-ghost" onclick="track('print',{part:${PART},chapter:${CH},kind:'${KIND}'});window.print()">종이로 인쇄</button>
+    </div>
+    <div class="nextnav">
+      ${cards.map((c2, n) => navCard(c2, n === 0
+          ? (nx ? "다음 장" : "이어서") : (other === "concept" ? "같은 장을 원리로" : "같은 장을 이야기로"))).join("")}
+      <a href="index.html"><small>전체</small><b>목차로 돌아가기</b></a>
+    </div>`;
+
+  const meta = { part: PART, chapter: CH, kind: KIND };
+  $("#done").onclick = () => {
+    Progress.mark(KIND, PART, CH, { manual: true });
+    track("read_done", Object.assign({ value: "버튼" }, meta));
+    toast("표시했습니다");
+    $("#done").textContent = "표시했습니다 ✓";
+    $("#done").disabled = true;
+    $("#done").style.opacity = ".6";
+  };
+  if(Progress.has(KIND, PART, CH)){
+    $("#done").textContent = "이미 읽으셨습니다 ✓";
+    $("#done").style.opacity = ".6";
+  }
+
+  watchScroll(meta);
+  track("read_open", meta);
+})();
+</script>
+</body>
+</html>

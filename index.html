@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>원장님 AI — 영란 원장, AI와 일하다</title>
+<meta name="description" content="어린이집 원장님을 위한 AI 교재. 소설로 읽고, 개념서로 이해하고, 손으로 실습합니다.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="series">어린이집 원장님을 위한 AI 교재</div>
+  <h1>영란 원장, AI와 일하다</h1>
+  <p class="sub">소설로 읽고, 개념서로 이해하고, 손으로 해 봅니다.</p>
+</header>
+
+<div class="card" id="welcome" style="display:none">
+  <p style="margin:0 0 12px"><b>처음 오셨군요.</b> 순서는 이렇습니다.</p>
+  <p style="margin:0 0 12px; color:var(--ink-soft)">
+    <b style="color:var(--ink)">소설</b>을 한 장 읽고 →
+    <b style="color:var(--ink)">개념서</b>로 그 장의 원리를 확인하고 →
+    <b style="color:var(--ink)">실습</b>에서 직접 해 봅니다.
+    한 번에 다 하실 필요 없습니다. 한 장이 6~7분입니다.
+  </p>
+  <p style="margin:0 0 12px; color:var(--ink-soft)">
+    읽으신 곳은 저절로 표시되고, 실습에 적으신 내용은 이 기기에 남습니다.
+    나갔다 오셔도 이어서 하실 수 있습니다.
+  </p>
+  <div class="btn-row">
+    <button class="btn" onclick="startHere()">1부 1장부터 시작하기</button>
+    <button class="btn-ghost" onclick="hideWelcome()">목차만 볼게요</button>
+  </div>
+</div>
+
+<div id="resume"></div>
+<div id="parts"><div class="loading">불러오는 중…</div></div>
+
+<div class="fb">
+  <h3>한 줄만 남겨 주세요</h3>
+  <p class="why">좋았던 점보다 <b>막혔던 점</b>이 훨씬 도움이 됩니다.</p>
+
+  <label>어디까지 해 보셨나요</label>
+  <select id="fb_far">
+    <option value="">— 고르기 —</option>
+    <option>실습까지 해서 실제로 써 봤다</option>
+    <option>소설과 개념서는 읽었다</option>
+    <option>소설만 읽었다</option>
+    <option>둘러보기만 했다</option>
+  </select>
+
+  <label>어디서 막히셨나요 <span class="hint">— 없으면 비워 두셔도 됩니다</span></label>
+  <textarea id="fb_stuck" rows="3" placeholder="예: 실습 4에서 역할 문장을 어떻게 지어야 할지 한참 헤맸어요"></textarea>
+
+  <label>이번 주 원장님을 <b>제일 오래 붙잡은 서류</b> 한 가지</label>
+  <input type="text" id="fb_doc" placeholder="예: 겨울철 안전점검 자료 제출">
+
+  <label>어린이집 이름 <span class="hint">— 선택. 적어 주시면 다음 편을 먼저 보내드립니다</span></label>
+  <input type="text" id="fb_name" placeholder="(안 적으셔도 됩니다)">
+
+  <div class="btn-row"><button class="btn" onclick="sendFeedback()">보내기</button></div>
+</div>
+
+<footer>
+  「영란 원장, AI와 일하다」 · 「원장실의 AI」 · 「손으로 쓰는 AI」<br>
+  개인이 만들어 무료로 나누는 자료입니다 · 문의 hoho70200@gmail.com<br>
+  <span style="color:var(--ink-faint)">읽으신 흔적은 이름 없이 숫자로만 모입니다. 적으신 내용은 이 기기에만 남습니다.</span>
+</footer>
+
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+let INDEX = null, PRACTICE = null, FIRST = null;
+
+const KIND_NAME = { novel:"소설", concept:"개념서", practice:"실습" };
+
+function itemHref(kind, part, ch){
+  return kind === "practice"
+    ? `practice.html?part=${part}&id=${ch}`
+    : `read.html?kind=${kind}&part=${part}&ch=${ch}`;
+}
+
+function row(kind, part, it){
+  const ch    = kind === "practice" ? it.id : it.ch;
+  const done  = Progress.has(kind, part, ch);
+  const label = kind === "practice"
+    ? `실습 ${it.no} · ${it.title}`
+    : (kind === "novel" ? `${it.ch}장 · ${it.title}` : `${it.ch === 99 ? "" : it.ch + "장 · "}${it.title}`);
+  const sub   = it.sub ? `<small>${esc(it.sub)}</small>` : "";
+  const mins  = kind === "practice" ? it.time : it.minutes + "분";
+  return `<a class="toc-item${done ? " done" : ""}" href="${itemHref(kind, part, ch)}"
+             data-kind="${kind}" data-part="${part}" data-ch="${esc(String(ch))}">
+      <span class="dot">${done ? "✓" : ""}</span>
+      <span class="t">${esc(label)}${sub}</span>
+      <span class="m">${esc(mins)}</span>
+    </a>`;
+}
+
+function group(title, kind, part, items){
+  if(!items || !items.length) return "";
+  const done = items.filter(it =>
+    Progress.has(kind, part, kind === "practice" ? it.id : it.ch)).length;
+  return `<div class="toc-group">
+      <div class="toc-title"><span>${esc(title)}</span>
+           <span style="font-weight:400">${done} / ${items.length}</span></div>
+      ${items.map(it => row(kind, part, it)).join("")}
+    </div>`;
+}
+
+function render(){
+  const prac = {};
+  (PRACTICE.parts || []).forEach(p => prac[p.n] = p.items);
+
+  const html = INDEX.parts.map(p => {
+    const pr = prac[p.n] || [];
+    const pct = p.open ? Progress.partPct(p.n, {
+      novel: p.novel, concept: p.concept, practice: pr.map(i => i.id)
+    }) : 0;
+
+    if(!p.open){
+      return `<div class="part">
+        <div class="part-head"><h2>${p.n}부 · ${esc(p.title)}</h2>
+             <span class="tag">준비 중</span></div>
+        <p class="part-desc">소설 ${p.novel.length}장 · 개념서 ${p.concept.length}장 — 곧 열립니다.</p>
+      </div>`;
+    }
+
+    return `<div class="part">
+      <div class="part-head"><h2>${p.n}부 · ${esc(p.title)}</h2>
+           <span class="tag open">읽는 중</span></div>
+      <div class="prog"><div class="track"><div class="fill" style="width:${pct}%"></div></div>
+           <span class="pct">${pct}%</span></div>
+      <div style="height:14px"></div>
+      <div class="toc">
+        ${group("소설 — 이야기로 만나기", "novel", p.n, p.novel)}
+        ${group("개념서 — 원리로 확인하기", "concept", p.n, p.concept)}
+        ${group("실습 — 손으로 해 보기", "practice", p.n, pr)}
+      </div>
+    </div>`;
+  }).join("");
+
+  $("#parts").innerHTML = html;
+  renderResume();
+}
+
+function allOpenItems(){
+  const out = [];
+  const prac = {};
+  (PRACTICE.parts || []).forEach(p => prac[p.n] = p.items);
+  INDEX.parts.filter(p => p.open).forEach(p => {
+    p.novel.forEach(c   => out.push({ kind:"novel",   part:p.n, ch:c.ch, title:`${p.n}부 ${c.ch}장 「${c.title}」` }));
+    p.concept.forEach(c => out.push({ kind:"concept", part:p.n, ch:c.ch, title:`개념서 ${p.n}편 ${c.ch}장 「${c.title}」` }));
+    (prac[p.n] || []).forEach(i => out.push({ kind:"practice", part:p.n, ch:i.id, title:`실습 ${i.no} 「${i.title}」` }));
+  });
+  return out;
+}
+
+function nextUp(){
+  return allOpenItems().find(i => !Progress.has(i.kind, i.part, i.ch));
+}
+
+function renderResume(){
+  const items = allOpenItems();
+  const doneN = items.filter(i => Progress.has(i.kind, i.part, i.ch)).length;
+  const n = nextUp();
+  if(!n || doneN === 0){ $("#resume").innerHTML = ""; return; }
+  $("#resume").innerHTML = `<div class="card" style="border-color:var(--accent)">
+      <p style="margin:0 0 4px; color:var(--ink-soft); font-size:15px">여기까지 하셨습니다 — ${doneN} / ${items.length}</p>
+      <p style="margin:0 0 14px; font-size:19px; font-weight:600">${esc(n.title)}</p>
+      <a class="btn" style="display:inline-block; text-decoration:none"
+         href="${itemHref(n.kind, n.part, n.ch)}" onclick="track('resume_click')">이어서 하기</a>
+    </div>`;
+}
+
+function startHere(){
+  const n = nextUp() || { kind:"novel", part:1, ch:1 };
+  track("start_click");
+  location.href = itemHref(n.kind, n.part, n.ch);
+}
+function hideWelcome(){
+  Store.set("seen_welcome", 1);
+  $("#welcome").style.display = "none";
+  track("welcome_dismiss");
+}
+
+function sendFeedback(){
+  const d = {
+    site: CONFIG.SITE, device: anonId(),
+    far:  $("#fb_far").value,
+    stuck:$("#fb_stuck").value.trim(),
+    doc:  $("#fb_doc").value.trim(),
+    center: $("#fb_name").value.trim(),
+    path: "index"
+  };
+  if(!d.far && !d.stuck && !d.doc){ toast("한 칸이라도 채워 주세요"); return; }
+
+  track("feedback", { value: (d.far || "-") + " / " + (d.doc || "-") });
+
+  if(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY){
+    fetch(CONFIG.SUPABASE_URL.replace(/\/$/,"") + "/rest/v1/feedback", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json",
+                "apikey": CONFIG.SUPABASE_ANON_KEY,
+                "Authorization": "Bearer " + CONFIG.SUPABASE_ANON_KEY,
+                "Prefer":"return=minimal" },
+      body: JSON.stringify([d])
+    }).catch(() => {});
+  }
+  ["fb_stuck","fb_doc","fb_name"].forEach(i => $("#" + i).value = "");
+  $("#fb_far").value = "";
+  toast("고맙습니다. 잘 받았습니다");
+}
+
+(async function(){
+  try{
+    [INDEX, PRACTICE] = await Promise.all([Data.index(), Data.practice()]);
+  }catch(e){ fail("자료를 불러오지 못했습니다. 잠시 후 다시 열어 주세요."); return; }
+
+  // 처음 오신 분에게만 — 이미 읽으신 흔적이 있으면 띄우지 않습니다
+  const fresh = !Store.get("seen_welcome") && !Object.keys(Progress.all()).length;
+  if(fresh) $("#welcome").style.display = "block";
+  render();
+  track("home_view", { value: document.referrer ? document.referrer.slice(0,120) : "직접" });
+})();
+</script>
+</body>
+</html>

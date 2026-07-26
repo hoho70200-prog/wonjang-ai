@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실습 — 원장님 AI</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .recall{background:var(--accent-soft); border-radius:10px; padding:14px 18px; margin:1.4em 0;}
+  .recall .rl{font-size:14px; color:var(--accent-dark); font-weight:600; margin-bottom:4px;}
+  .recall .rv{font-size:16.5px; white-space:pre-wrap; word-break:break-word;}
+  .recall .rv.none{color:var(--ink-faint); font-style:italic;}
+  .kit{list-style:none; padding:0; margin:1.2em 0;}
+  .kit li{display:flex; gap:11px; align-items:flex-start; padding:9px 0;
+          border-bottom:1px solid var(--line-soft); font-size:16.5px;}
+  .kit li:last-child{border-bottom:0;}
+  .kit .mk{flex:none; width:22px; height:22px; border-radius:50%; border:1.5px solid var(--line);
+           display:flex; align-items:center; justify-content:center; font-size:12px;
+           color:var(--ink-faint); margin-top:3px;}
+  .kit li.on .mk{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .kit small{color:var(--ink-soft);}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header id="head"></header>
+  <div id="intro"></div>
+  <div id="body"><div class="loading">불러오는 중…</div></div>
+  <div id="after"></div>
+  <footer>「손으로 쓰는 AI」 · 적으신 내용은 이 기기에만 남습니다</footer>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+const PART = parseInt(qs("part") || "1", 10);
+const ID   = qs("id") || "1-0";
+let ITEM = null, PARTITEMS = [];
+
+/* ── 프롬프트 조립 ────────────────────────────────────────────
+   {{칸이름}} 을 원장님이 적으신 값으로 바꿉니다.
+   한 줄의 빈칸이 전부 비어 있으면 그 줄은 통째로 빠지고,
+   일부만 비었으면 □□□ 로 표시해 무엇이 남았는지 보여 줍니다. */
+function fill(tpl){
+  const out = [];
+  let any = false;
+  tpl.split("\n").forEach(ln => {
+    const refs = [...ln.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+    if(refs.length){
+      const got = refs.filter(r => Fields.get(r));
+      if(!got.length) return;              // 통째로 빈 줄은 뺀다
+      any = true;
+      ln = ln.replace(/\{\{(\w+)\}\}/g, (_, r) => Fields.get(r) || "□□□");
+    }
+    out.push(ln);
+  });
+  return { text: out.join("\n").replace(/\n{3,}/g, "\n\n").trim(), any };
+}
+
+function buildHtml(b, i){
+  return `<div class="pbox" data-build="${i}">
+    <div class="plabel">${esc(b.label || "완성된 부탁")}</div>
+    <pre id="bout${i}"></pre>
+    ${b.hint ? `<p class="phint">${esc(b.hint)}</p>` : ""}
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn-copy" data-bcopy="${i}">복사하기</button>
+      <a class="btn-open" href="https://claude.ai/new" target="_blank" rel="noopener"
+         data-open="claude">클로드 열기 ↗</a>
+      <a class="btn-open" href="https://chatgpt.com" target="_blank" rel="noopener"
+         data-open="chatgpt">챗지피티 열기 ↗</a>
+    </div>
+  </div>`;
+}
+
+function renderBuild(i){
+  const b = BUILDS[i];
+  const r = fill(b.tpl);
+  let text = r.text;
+  if(!r.any && b.fallback) text = b.fallback;
+  const el = $("#bout" + i);
+  if(!text){
+    el.innerHTML = `<span class="empty">위 칸을 채우시면 여기에 부탁이 조립됩니다.</span>`;
+  }else{
+    el.innerHTML = esc(text).replace(/□□□/g, "<mark>□□□</mark>");
+  }
+  if(b.id) Fields.set(b.id, text || "");
+  return text;
+}
+
+const BUILDS = [];
+
+function blockHtml(b){
+  switch(b.t){
+    case "p":     return `<p>${b.x}</p>`;
+    case "quote": return `<div class="quote">${(b.x||[]).map(l=>`<div>${esc(l)}</div>`).join("")}</div>`;
+    case "note":  return `<div class="note"><b class="h">${esc(b.h||"")}</b>${b.x}</div>`;
+    case "prompt":
+      return `<div class="pbox">
+        <div class="plabel">${esc(b.label || "AI에 그대로 쳐 보세요")}</div>
+        <pre>${esc(b.x)}</pre>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="btn-copy" data-copy="${esc(b.x)}">복사하기</button>
+          <a class="btn-open" href="https://claude.ai/new" target="_blank" rel="noopener" data-open="claude">클로드 열기 ↗</a>
+          <a class="btn-open" href="https://chatgpt.com" target="_blank" rel="noopener" data-open="chatgpt">챗지피티 열기 ↗</a>
+        </div></div>`;
+    case "field": {
+      const v = Fields.get(b.id);
+      const rows = b.rows || 1;
+      const inp = rows > 1
+        ? `<textarea id="f_${b.id}" rows="${rows}" placeholder="${esc(b.ph||"")}">${esc(v)}</textarea>`
+        : `<input type="text" id="f_${b.id}" placeholder="${esc(b.ph||"")}" value="${esc(v)}">`;
+      return `<label for="f_${b.id}">${b.label}<span class="saved" id="s_${b.id}">저장됨</span></label>${inp}`;
+    }
+    case "recall": {
+      const v = Fields.get(b.id);
+      return `<div class="recall"><div class="rl">${esc(b.label)}</div>
+        <div class="rv${v ? "" : " none"}">${v ? esc(v) : "아직 비어 있습니다 — 그 실습으로 돌아가 채우시면 여기에 따라옵니다."}</div></div>`;
+    }
+    case "build": { BUILDS.push(b); return buildHtml(b, BUILDS.length - 1); }
+    case "box":   return kitHtml();
+    default:      return "";
+  }
+}
+
+const KIT = [
+  ["p2_c1",   "조건 메모 — 새 대화의 첫 카드",              "1-2"],
+  ["p4_role1","우리 원 역할 한 줄",                        "1-4"],
+  ["p4_card", "우리 원 소개 카드",                          "1-4"],
+  ["p5_ctx",  "뼈대 부탁 — 내년에도 날짜만 바꿔 다시 쓰는 비품", "1-5"],
+  ["p6_ex1",  "예시 파일 — 이름 OO 처리된 통신문",           "1-6"],
+  ["p3_fix1", "이름 지우기 손연습",                         "1-3"],
+  ["doc",     "연습 상대 문서",                            "1-0"]
+];
+
+function kitHtml(){
+  return `<ul class="kit">${KIT.map(([id, name, go]) => {
+    const on = !!Fields.get(id);
+    return `<li class="${on ? "on" : ""}"><span class="mk">${on ? "✓" : ""}</span>
+      <span>${esc(name)}<br><small>${on ? "만들어져 있습니다" :
+        `<a href="practice.html?part=1&id=${go}">실습 ${go.split("-")[1]}에서 만들기</a>`}</small></span></li>`;
+  }).join("")}</ul>`;
+}
+
+function wire(){
+  // 입력 저장
+  $$("[id^='f_']").forEach(el => {
+    const id = el.id.slice(2);
+    let t = null;
+    el.addEventListener("input", () => {
+      Fields.set(id, el.value);
+      BUILDS.forEach((_, i) => renderBuild(i));
+      const s = $("#s_" + id);
+      if(s){ s.classList.add("on"); clearTimeout(t); t = setTimeout(() => s.classList.remove("on"), 1200); }
+    });
+    el.addEventListener("change", () => {
+      if(el.value.trim()) track("field_filled", { part: PART, chapter: ID, value: id });
+    });
+  });
+
+  // 고정 부탁 복사
+  $$("[data-copy]").forEach(b => b.onclick = () => {
+    copyText(b.dataset.copy);
+    track("prompt_copy", { part: PART, chapter: ID, kind: "fixed" });
+  });
+
+  // 조립된 부탁 복사 — 가장 중요한 신호입니다
+  $$("[data-bcopy]").forEach(b => b.onclick = () => {
+    const i = +b.dataset.bcopy;
+    const text = renderBuild(i);
+    if(!text){ toast("먼저 위 칸을 채워 주세요"); return; }
+    copyText(text);
+    track("build_copy", { part: PART, chapter: ID, kind: BUILDS[i].label, value: text.length + "자" });
+  });
+
+  $$("[data-open]").forEach(a => a.onclick = () =>
+    track("open_ai", { part: PART, chapter: ID, value: a.dataset.open }));
+
+  BUILDS.forEach((_, i) => renderBuild(i));
+}
+
+(async function(){
+  let pdata, idx;
+  try{
+    [pdata, idx] = await Promise.all([Data.practice(), Data.index()]);
+  }catch(e){ fail("실습을 불러오지 못했습니다."); return; }
+
+  const part = (pdata.parts || []).find(p => p.n === PART);
+  if(!part){ fail("이 부의 실습을 찾지 못했습니다."); return; }
+  PARTITEMS = part.items;
+  ITEM = PARTITEMS.find(i => i.id === ID);
+  if(!ITEM){ fail("이 실습을 찾지 못했습니다."); return; }
+
+  topBar("index.html", "목차", `${PART}부 · 실습 ${ITEM.no}`);
+  document.title = `실습 ${ITEM.no} ${ITEM.title} — 원장님 AI`;
+
+  $("#head").innerHTML = `
+    <div class="series">「손으로 쓰는 AI」 · ${PART}편 실습서 「${esc(part.title)}」</div>
+    <h1 class="small">실습 ${esc(ITEM.no)} · ${esc(ITEM.title)}</h1>
+    ${ITEM.sub ? `<p class="sub">${esc(ITEM.sub)}</p>` : ""}
+    <div class="meta">
+      ${ITEM.pair ? `<span><b>짝꿍</b> ${esc(ITEM.pair)}</span>` : ""}
+      ${ITEM.time ? `<span><b>예상 시간</b> ${esc(ITEM.time)}</span>` : ""}
+      ${ITEM.prep ? `<span><b>준비물</b> ${esc(ITEM.prep)}</span>` : ""}
+    </div>`;
+
+  $("#intro").innerHTML = ITEM.intro
+    ? `<div class="quote"><div>${ITEM.intro}</div></div>` : "";
+
+  $("#body").innerHTML = ITEM.sections.map((s, n) => `
+    <div class="step">
+      <div class="step-head"><div class="num">${n + 1}</div><h2>${esc(s.h)}</h2></div>
+      ${s.blocks.map(blockHtml).join("")}
+    </div>`).join("");
+
+  // 확인하고 넘어가기
+  const saved = Store.get("checks_" + ID, []);
+  const checkHtml = (ITEM.check || []).map((c, i) =>
+    `<label><input type="checkbox" data-c="${i}"${saved[i] ? " checked" : ""}><span>${c}</span></label>`).join("");
+
+  const notes = [];
+  if(ITEM.stuck)     notes.push(["막혔을 때", ITEM.stuck]);
+  if(ITEM.principle) notes.push(["원칙 한 줄 점검", ITEM.principle]);
+
+  const i = PARTITEMS.findIndex(x => x.id === ID);
+  const nx = PARTITEMS[i + 1];
+
+  $("#after").innerHTML = `
+    ${checkHtml ? `<div class="check"><h3>확인하고 넘어가기</h3>${checkHtml}</div>` : ""}
+    ${notes.map(([h, x]) => `<div class="note"><b class="h">${esc(h)}</b>${x}</div>`).join("")}
+    <div class="btn-row">
+      <button class="btn" id="done">실습을 마쳤습니다</button>
+      <button class="btn-ghost" onclick="track('print',{part:${PART},chapter:'${ID}'});window.print()">종이로 인쇄</button>
+    </div>
+    <div class="nextnav">
+      ${nx ? `<a href="practice.html?part=${PART}&id=${nx.id}" onclick="track('next_click',{kind:'practice'})">
+                <small>다음 실습</small><b>실습 ${esc(nx.no)} · ${esc(nx.title)}</b></a>` : ""}
+      ${ITEM.next ? `<a href="index.html"><small>다음</small><b>${esc(ITEM.next.split("」")[0].replace(/^실습\s*\d+\s*「/, "").slice(0, 30))}</b></a>`
+                  : `<a href="index.html"><small>전체</small><b>목차로 돌아가기</b></a>`}
+    </div>`;
+
+  $$(".check input").forEach(c => c.onchange = () => {
+    const arr = $$(".check input").map(x => x.checked);
+    Store.set("checks_" + ID, arr);
+    if(c.checked) track("check", { part: PART, chapter: ID, value: c.dataset.c });
+  });
+
+  $("#done").onclick = () => {
+    Progress.mark("practice", PART, ID);
+    track("practice_done", { part: PART, chapter: ID });
+    toast("표시했습니다");
+    $("#done").textContent = "마치셨습니다 ✓";
+    $("#done").disabled = true; $("#done").style.opacity = ".6";
+  };
+  if(Progress.has("practice", PART, ID)){
+    $("#done").textContent = "이미 마치셨습니다 ✓";
+    $("#done").style.opacity = ".6";
+  }
+
+  wire();
+  watchScroll({ part: PART, chapter: ID, kind: "practice" });
+  track("practice_open", { part: PART, chapter: ID });
+})();
+</script>
+</body>
+</html>
