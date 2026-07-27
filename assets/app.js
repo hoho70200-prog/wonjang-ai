@@ -10,7 +10,7 @@
    ────────────────────────────────────────────────────────────── */
 const CONFIG = {
   SUPABASE_URL: "https://arsnfylagakrjgmekkbx.supabase.co",
-  SUPABASE_ANON_KEY: "여기에_붙여넣기",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyc25meWxhZ2FrcmpnbWVra2J4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwODM0MjksImV4cCI6MjEwMDY1OTQyOX0.eHXlzDCvoAlGYorAtjyfbKdl7A-vEFKhp9KoYFtn1AQ",
   SITE: "wonjang-ai"
 };
 
