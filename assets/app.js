@@ -10,7 +10,7 @@
    ────────────────────────────────────────────────────────────── */
 const CONFIG = {
   SUPABASE_URL: "https://arsnfylagakrjgmekkbx.supabase.co",
-  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyc25meWxhZ2FrcmpnbWVra2J4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwODM0MjksImV4cCI6MjEwMDY1OTQyOX0.eHXlzDCvoAlGYorAtjyfbKdl7A-vEFKhp9KoYFtn1AQ",
+  SUPABASE_ANON_KEY: "여기에_붙여넣기",
   SITE: "wonjang-ai"
 };
 
@@ -59,15 +59,74 @@ const Progress = {
     Store.set("done", d);
   },
   has(kind, part, ch){ return !!Progress.all()[Progress.key(kind, part, ch)]; },
-  partPct(part, index){
-    const d = Progress.all();
-    const items = [];
-    (index.novel   || []).forEach(c => items.push(`novel-${part}-${c.ch}`));
-    (index.concept || []).forEach(c => items.push(`concept-${part}-${c.ch}`));
-    (index.practice|| []).forEach(c => items.push(`practice-${part}-${c}`));
-    if(!items.length) return 0;
-    return Math.round(items.filter(k => d[k]).length / items.length * 100);
+
+  /* 한 부를 얼마나 했나. 보는 방식에 따라 셈의 분모가 달라집니다 —
+     단계로 볼 땐 실습까지, 소설만 볼 땐 소설 10장만. */
+  partPct(part, mode){
+    const seq = Flow.seq(part, mode || Mode.get());
+    if(!seq.length) return 0;
+    return Math.round(seq.filter(Flow.done).length / seq.length * 100);
   }
+};
+
+/* ── 읽는 방식 ───────────────────────────────────────────────────
+   stage — 단계로 보기 (소설 → 개념서 → 실습을 한 묶음으로, 기본)
+   novel — 소설만 이어 읽기 (이야기 흐름이 안 끊기게)              */
+const Mode = {
+  get(){ return Store.get("mode") === "novel" ? "novel" : "stage"; },
+  set(m){ Store.set("mode", m === "novel" ? "novel" : "stage"); }
+};
+
+/* ── 흐름 ────────────────────────────────────────────────────────
+   목차의 단계 정보를 한 줄로 펴서 "다음은 어디"를 답합니다.
+   이 한 곳만 보면 되니, 읽기 화면과 실습 화면이 서로 몰라도 됩니다. */
+const Flow = {
+  ref(it){ return { kind: it.kind, part: it.part,
+                    ch: it.kind === "practice" ? it.id : it.ch }; },
+
+  key(it){ const r = Flow.ref(it); return `${r.kind}-${r.part}-${r.ch}`; },
+
+  href(it){
+    const r = Flow.ref(it);
+    return r.kind === "practice"
+      ? `practice.html?part=${r.part}&id=${r.ch}`
+      : `read.html?kind=${r.kind}&part=${r.part}&ch=${r.ch}`;
+  },
+
+  label(it){
+    if(it.kind === "practice") return `실습 ${it.no} · ${it.title}`;
+    const c = it.ch === 99 ? "부록" : it.ch + "장";
+    return `${it.kind === "novel" ? "소설" : "개념서"} ${c} · ${it.title}`;
+  },
+
+  /* 한 부의 항목을 읽는 순서대로 펴 놓습니다 */
+  seq(part, mode){
+    if(!part) return [];
+    if(mode === "novel" || !part.stages){
+      return (part.novel || []).map(c =>
+        Object.assign({ kind:"novel", part: part.n }, c));
+    }
+    return part.stages.flatMap(s =>
+      s.items.map(it => Object.assign({ part: part.n, stage: s.name, stageN: s.n }, it)));
+  },
+
+  /* 열린 부 전체를 이어 붙인 순서 */
+  all(index, mode){
+    return (index.parts || []).filter(p => p.open)
+      .flatMap(p => Flow.seq(p, mode || Mode.get()));
+  },
+
+  at(seq, kind, part, ch){
+    const k = `${kind}-${part}-${ch}`;
+    return seq.findIndex(it => Flow.key(it) === k);
+  },
+
+  next(seq, kind, part, ch){
+    const i = Flow.at(seq, kind, part, ch);
+    return i >= 0 ? seq[i + 1] : null;
+  },
+
+  done(it){ const r = Flow.ref(it); return Progress.has(r.kind, r.part, r.ch); }
 };
 
 /* 실습 입력값 — 실습끼리 서로 참조할 수 있게 한 곳에 모아 둡니다. */
