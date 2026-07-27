@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">   <!-- 검수 중 검색 차단. 공개할 때 이 줄만 지우세요 -->
 <title>읽기 — 원장님 AI</title>
-<link rel="stylesheet" href="assets/style.css?v=2607271020">
+<link rel="stylesheet" href="assets/style.css?v=2607271530">
 <style>
   .fsize{display:flex; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:none;}
   .fsize button{background:#fff; color:var(--ink-soft); padding:5px 11px; font-size:13px;
@@ -27,7 +27,7 @@
   </footer>
 </div>
 
-<script src="assets/app.js?v=2607271020"></script>
+<script src="assets/app.js?v=2607271530"></script>
 <script>
 const KIND = qs("kind") === "concept" ? "concept" : "novel";
 const PART = parseInt(qs("part") || "1", 10);
@@ -150,7 +150,7 @@ function navCard(item, label){
   const meta = { part: PART, chapter: CH, kind: KIND };
   $("#done").onclick = () => {
     Progress.mark(KIND, PART, CH, { manual: true });
-    track("read_done", Object.assign({ value: "버튼" }, meta));
+    track("read_done", Object.assign({}, meta, { value: "버튼 · " + Dwell.sec() + "초" }));
     toast("표시했습니다");
     $("#done").textContent = "표시했습니다 ✓";
     $("#done").disabled = true;
@@ -161,7 +161,7 @@ function navCard(item, label){
     $("#done").style.opacity = ".6";
   }
 
-  watchScroll(meta);
+  watchScroll(meta, c.minutes);
   track("read_open", meta);
 })();
 </script>
