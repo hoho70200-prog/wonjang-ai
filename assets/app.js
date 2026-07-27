@@ -14,6 +14,10 @@ const CONFIG = {
   SITE: "wonjang-ai"
 };
 
+/* 키를 아직 안 넣었는데 넣은 것처럼 굴면, 통계는 조용히 실패하는데
+   대시보드는 "로그인하세요" 화면을 띄웁니다. 진짜 키인지 한 번 봅니다. */
+const KEY_OK = /^(eyJ|sb_)/.test(String(CONFIG.SUPABASE_ANON_KEY || "").trim());
+
 /* ── 잔손 ── */
 const $  = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
@@ -34,6 +38,24 @@ const Store = {
                   return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem("wai_" + k, JSON.stringify(v)); }catch(e){} }
 };
+
+/* 내 기기는 통계에서 빼기 ────────────────────────────────────────
+   주소 뒤에 ?tester=1 을 붙여 한 번만 열면, 그 뒤로 이 브라우저에서
+   한 일은 서버로 가지 않습니다. 검수하러 들어간 내 발자국이 원장님들
+   숫자에 섞이면 완독률이 통째로 흔들립니다. (?tester=0 이면 해제) */
+if(qs("tester") !== null) Store.set("tester", qs("tester") === "0" ? 0 : 1);
+const isTester = () => !!Store.get("tester");
+
+function testerBadge(){
+  if(!isTester() || $("#tester-badge")) return;
+  const b = document.createElement("div");
+  b.id = "tester-badge";
+  b.textContent = "통계 제외 중 · " + anonId();
+  b.title = "이 브라우저의 기록은 대시보드에 쌓이지 않습니다. 해제하려면 주소 뒤에 ?tester=0";
+  b.style.cssText = "position:fixed;left:10px;bottom:10px;z-index:60;background:#3A3A38;color:#fff;" +
+    "font-size:12px;padding:5px 9px;border-radius:6px;opacity:.72;pointer-events:none";
+  document.body.appendChild(b);
+}
 
 /* 익명 식별표 — 이름도 이메일도 아닌, 이 브라우저에만 있는 무작위 글자입니다.
    같은 사람이 폰과 PC를 오가면 서로 다른 표가 됩니다. */
@@ -141,7 +163,7 @@ const Fields = {
 const Track = (() => {
   const buf = [];
   let timer = null;
-  const on = () => CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY;
+  const on = () => !!(CONFIG.SUPABASE_URL && KEY_OK);
 
   async function flush(useBeacon){
     if(!buf.length) return;
@@ -165,6 +187,7 @@ const Track = (() => {
   }
 
   function push(name, props){
+    if(isTester()) return;
     buf.push({
       site: CONFIG.SITE,
       device: anonId(),
@@ -187,55 +210,121 @@ const Track = (() => {
 
 const track = (name, props) => Track.push(name, props);
 
-/* ── 스크롤 깊이 ─────────────────────────────────────────────────
+/* ── 머문 시간 ───────────────────────────────────────────────────
+   "이 화면에 얼마나 계셨나"를 잽니다. 다만 켜 두고 자리를 뜬 시간까지
+   읽은 시간으로 세면 숫자가 통째로 부풀므로, 두 경우에는 시계를 멈춥니다.
+     · 다른 탭·다른 앱으로 넘어가 화면이 안 보일 때
+     · 90초 넘게 아무 움직임(스크롤·터치·키·마우스)이 없을 때
+
+   한 번 열 때마다 무작위 표(view)를 붙여 여러 번 보고합니다.
+   중간에 창을 닫아도 마지막 보고가 남고, 대시보드는 한 열람에서
+   가장 큰 값 하나만 쓰므로 같은 시간이 두 번 세어지지 않습니다.     */
+const Dwell = (() => {
+  const IDLE = 90000;    // 이만큼 조용하면 자리를 뜬 것으로 봅니다
+  const GAP  = 5000;     // 탭이 멈춰 있던 큰 공백은 세지 않습니다
+  const STEP = 60000;    // 보고 간격
+  const MIN  = 5;        // 5초 미만은 잘못 눌러 들어온 것으로 보고 안 보냅니다
+  const view = "v" + Math.random().toString(36).slice(2, 10);
+
+  let meta = null, active = 0, last = 0, act = 0, sent = -1, started = false;
+
+  const mark = () => { act = Date.now(); };
+  const sec  = () => Math.round(active / 1000);
+
+  function step(){
+    const now = Date.now();
+    const dt = Math.min(now - last, GAP);
+    last = now;
+    if(!document.hidden && now - act < IDLE) active += dt;
+    const s = sec();
+    if(s >= MIN && (sent < 0 ? s >= 15 : s - sent >= STEP / 1000)) report();
+  }
+
+  function report(closing){
+    const s = sec();
+    if(!meta || s < MIN || s === sent) return;
+    sent = s;
+    track("read_time", Object.assign({}, meta, { value: s + "|" + view }));
+    if(closing) Track.flush(true);
+  }
+
+  function start(m){
+    meta = m;
+    if(started) return;
+    started = true;
+    last = act = Date.now();
+    ["scroll", "keydown", "mousedown", "mousemove", "touchstart", "wheel"]
+      .forEach(e => addEventListener(e, mark, { passive: true }));
+    setInterval(step, 1000);
+    addEventListener("visibilitychange", () => { step(); if(document.hidden) report(true); });
+    addEventListener("pagehide", () => { step(); report(true); });
+  }
+
+  return { start, sec, view };
+})();
+
+/* ── 스크롤 깊이와 완독 판정 ──────────────────────────────────────
    25 / 50 / 75 / 100%를 지날 때 한 번씩 기록합니다.
-   100%가 곧 완독률입니다.
 
-   다만 화면보다 짧은 장은 열자마자 100%가 되어 버리므로,
-   최소 머문 시간(DWELL)을 넘겨야 "읽었다"로 칩니다.
-   열자마자 닫은 사람이 완독으로 잡히면 숫자를 믿을 수 없게 됩니다. */
-const DWELL = 20000;   // 20초
+   "다 읽었다"로 치려면 두 가지가 함께 맞아야 합니다.
+     ① 맨 아래(95% 이상)까지 내려갔을 것
+     ② 그 장을 읽을 만한 시간을 실제로 머물렀을 것
 
-function watchScroll(meta){
+   ②가 없으면, 화면보다 짧은 장은 열자마자 100%가 되어 버리고
+   맨 아래로 한 번 튕겨 내린 사람도 완독으로 잡힙니다. 3,500자짜리
+   장을 20초에 읽을 수는 없으니, 예상 읽는 시간의 40%를 기준으로
+   잡되 아무리 짧아도 45초, 아무리 길어도 4분이면 인정합니다.       */
+const READ = { FLOOR: 45, RATIO: 0.4, CEIL: 240, DEPTH: 95 };
+
+function needSec(minutes){
+  const m = Number(minutes) || 0;
+  return Math.round(Math.min(READ.CEIL, Math.max(READ.FLOOR, m * 60 * READ.RATIO)));
+}
+
+function watchScroll(meta, minutes){
   const marks = [25, 50, 75, 100];
   const hit = new Set();
   const bar = $(".bar");
-  const t0 = Date.now();
-  let maxPct = 0, marked = false, timer = null;
+  const need = needSec(minutes);
+  const DONE = meta.kind === "practice" ? "practice_done" : "read_done";
+  let maxPct = 0, marked = false, tick = null;
+
+  Dwell.start(meta);
 
   function finish(){
     if(marked || !meta.kind || !meta.part) return;
     marked = true;
+    clearInterval(tick);
     Progress.mark(meta.kind, meta.part, meta.chapter, { pct: 100 });
-    track("read_done", Object.assign({ value: Math.round((Date.now() - t0) / 1000) + "초" }, meta));
+    track(DONE, Object.assign({}, meta, { value: "끝까지 · " + Dwell.sec() + "초" }));
     const b = document.getElementById("done");
-    if(b && !b.disabled){ b.textContent = "다 읽으셨습니다 ✓"; b.style.opacity = ".6"; }
+    if(b && !b.disabled){
+      b.textContent = meta.kind === "practice" ? "마치셨습니다 ✓" : "다 읽으셨습니다 ✓";
+      b.style.opacity = ".6";
+    }
   }
 
   function check(){
     const h = document.documentElement;
     const total = h.scrollHeight - h.clientHeight;
-    const pct = total <= 0 ? 100 : Math.min(100, Math.round(h.scrollTop / total * 100));
+    const pct = total <= 8 ? 100 : Math.min(100, Math.round(h.scrollTop / total * 100));
     if(pct > maxPct) maxPct = pct;
     if(bar) bar.style.width = pct + "%";
 
     marks.forEach(m => {
       if(pct >= m && !hit.has(m)){
         hit.add(m);
-        track("scroll", Object.assign({ value: m }, meta));
+        track("scroll", Object.assign({}, meta, { value: m }));
       }
     });
 
-    if(pct >= 100 && !marked && !timer){
-      const left = DWELL - (Date.now() - t0);
-      if(left <= 0) finish();
-      else timer = setTimeout(() => { timer = null; finish(); }, left);
-    }
+    if(!marked && maxPct >= READ.DEPTH && Dwell.sec() >= need) finish();
   }
 
   addEventListener("scroll", check, { passive: true });
   addEventListener("resize", check);
   setTimeout(check, 500);
+  tick = setInterval(check, 5000);   // 다 내려간 뒤 가만히 읽는 시간도 세어야 합니다
   return () => maxPct;
 }
 
@@ -287,3 +376,7 @@ function fail(msg){
        <p><a href="index.html">처음으로 돌아가기</a></p>
      </div></div>`;
 }
+
+/* 통계에서 빠져 있는 상태라면 화면 구석에 조용히 알려 줍니다 */
+if(document.body) testerBadge();
+else addEventListener("DOMContentLoaded", testerBadge);
