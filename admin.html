@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>대시보드 — 원장님 AI</title>
-<link rel="stylesheet" href="assets/style.css?v=2607271020">
+<link rel="stylesheet" href="assets/style.css?v=2607271530">
 <style>
   .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:18px 0;}
   .stat{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px;}
@@ -22,6 +22,11 @@
   .fun .vv small{font-weight:400; color:var(--ink-faint);}
 
   table{width:100%; border-collapse:collapse; font-size:15px;}
+  /* 칸이 많은 표는 글자를 눌러 접지 말고 옆으로 밀어 봅니다 */
+  .tbl{overflow-x:auto;}
+  .tbl table{min-width:660px;}
+  .tbl td, .tbl th{white-space:nowrap;}
+  .tbl td:nth-child(2){white-space:normal;}
   th,td{padding:9px 8px; text-align:left; border-bottom:1px solid var(--line-soft);}
   th{font-size:13.5px; color:var(--ink-soft); font-weight:600;}
   td.n{text-align:right; font-variant-numeric:tabular-nums;}
@@ -62,6 +67,8 @@
   <div class="setup">
     <p style="margin:0 0 12px"><b>assets/app.js</b> 맨 위 <code>CONFIG</code>에
        Supabase 주소와 anon 키를 넣으면 이 화면이 대시보드로 바뀝니다.</p>
+    <p style="margin:0 0 12px; color:var(--ink-soft)">키는 <code>eyJ</code> 나 <code>sb_</code> 로 시작합니다.
+       <code>여기에_붙여넣기</code> 자리표시자가 그대로면 통계가 한 건도 안 쌓입니다.</p>
     <p style="margin:0; color:var(--ink-soft)">순서는 <b>배포안내.md</b>에 적어 두었습니다.</p>
   </div>
 </div>
@@ -88,13 +95,25 @@
   <p class="secd">위에서 아래로 얼마나 새는지. <b>부탁 복사</b>가 실제로 AI를 써 봤다는 가장 강한 신호입니다.</p>
   <div class="card"><div class="fun" id="funnel"></div></div>
 
+  <h2 class="sec">얼마나 머무셨나</h2>
+  <p class="secd">화면을 보고 계신 시간만 잽니다. 다른 탭으로 넘어가거나 90초 넘게 아무 움직임이 없으면
+     시계를 멈추므로, 켜 놓고 자리를 뜬 시간은 빠집니다.</p>
+  <div class="grid" id="timecards"></div>
+  <div class="card tbl" style="padding:8px 20px"><table id="timekind"></table></div>
+
+  <h2 class="sec">장별로 얼마나 머무셨나</h2>
+  <p class="secd">오래 머물렀다고 다 좋은 것은 아닙니다 — 어려워서 붙잡혀 계실 수도 있습니다.
+     <b>예상</b>은 글 길이로 잡은 읽는 시간입니다. 예상보다 한참 짧으면 훑고 지나간 장,
+     한참 길면 걸린 장으로 보십시오.</p>
+  <div class="card tbl" style="padding:8px 20px"><table id="timech"></table></div>
+
   <h2 class="sec">얼마나 내려 읽었나</h2>
-  <p class="secd">한 사람이 도달한 가장 깊은 지점입니다. “끝까지”가 완독한 사람입니다.</p>
+  <p class="secd">장을 한 번 연 것을 하나로 셉니다. “끝까지”는 그 장의 맨 아래까지 내려간 열람입니다.</p>
   <div class="card"><div class="fun" id="depth"></div></div>
 
   <h2 class="sec">어디서 멈추나</h2>
   <p class="secd">연 사람 대비 끝낸 사람. <span class="drop">주황색</span>은 이탈이 특히 큰 곳 — 그 장에 문제가 있다는 뜻입니다.</p>
-  <div class="card" style="padding:8px 20px"><table id="chapters"></table></div>
+  <div class="card tbl" style="padding:8px 20px"><table id="chapters"></table></div>
 
   <h2 class="sec">날짜별</h2>
   <div class="card"><div class="spark" id="spark"></div>
@@ -113,7 +132,7 @@
 
 </div>
 
-<script src="assets/app.js?v=2607271020"></script>
+<script src="assets/app.js?v=2607271530"></script>
 <script>
 const API = () => CONFIG.SUPABASE_URL.replace(/\/$/, "");
 let TOKEN = sessionStorage.getItem("wai_tok") || "";
@@ -167,10 +186,57 @@ function show(which){
 
 const num = n => (n == null ? "—" : Number(n).toLocaleString("ko-KR"));
 
+/* 초를 사람이 읽는 말로 — 62 → "1분 2초" */
+function dur(s){
+  if(s == null) return "—";
+  s = Math.round(s);
+  if(s < 60) return s + "초";
+  const m = Math.floor(s / 60), r = s % 60;
+  if(m < 60) return r ? `${m}분 ${r}초` : `${m}분`;
+  const h = Math.floor(m / 60);
+  return `${h}시간 ${m % 60}분`;
+}
+
 function statCard(k, v, n){
   return `<div class="stat"><div class="k">${k}</div><div class="v">${num(v)}</div>
           <div class="n">${n || ""}</div></div>`;
 }
+
+/* 숫자가 아니라 시간·글자를 크게 보여 주는 칸 */
+function textCard(k, v, n){
+  return `<div class="stat"><div class="k">${k}</div>
+          <div class="v" style="font-size:23px">${esc(v)}</div>
+          <div class="n">${esc(n || "")}</div></div>`;
+}
+
+/* ── 장 이름표 ────────────────────────────────────────────────────
+   대시보드에 "1부 소설 7"만 뜨면 어느 장인지 알 수 없습니다.
+   사이트가 쓰는 원고 파일을 그대로 읽어 제목과 예상 시간을 붙입니다. */
+const LABEL = {};
+let NOVEL_CH = 10;
+
+async function loadLabels(){
+  const idx = await Data.index();
+  const open = (idx.parts || []).filter(p => p.open);
+  NOVEL_CH = open.reduce((s, p) => s + ((p.novel || []).length), 0) || 10;
+
+  for(const p of open){
+    const d = await Data.part(p.n);
+    ["novel", "concept"].forEach(k => (d[k] || []).forEach(c => {
+      LABEL[`${k}-${p.n}-${c.ch}`] =
+        { title: (c.ch === 99 ? "부록" : c.ch + "장") + " · " + c.title, min: c.minutes };
+    }));
+  }
+  const pr = await Data.practice();
+  (pr.parts || []).forEach(p => (p.items || []).forEach(it => {
+    LABEL[`practice-${p.n}-${it.id}`] =
+      { title: "실습 " + it.no + " · " + it.title, min: parseInt(it.time, 10) || 0 };
+  }));
+}
+
+const KIND_NAME = { novel:"소설", concept:"개념서", practice:"실습", home:"목차" };
+const chLabel = r => (LABEL[`${r.kind}-${r.part}-${r.chapter}`] || {}).title || String(r.chapter);
+const chMin   = r => (LABEL[`${r.kind}-${r.part}-${r.chapter}`] || {}).min || 0;
 
 function funnelRows(el, data, total){
   const max = total || Math.max(1, ...data.map(d => d[1]));
@@ -185,50 +251,111 @@ function funnelRows(el, data, total){
 async function loadAll(){
   const d = +$("#days").value;
   try{
-    const [ov, ch, dy, dp, dc, fb] = await Promise.all([
-      rpc("stats_overview", { days:d }),
+    if(!Object.keys(LABEL).length) await loadLabels().catch(() => {});
+
+    const [ov, ch, dy, dp, dc, tk, tc, fb] = await Promise.all([
+      rpc("stats_overview", { days:d, novel_ch: NOVEL_CH }),
       rpc("stats_chapters", { days:d }),
       rpc("stats_daily",    { days:d }),
       rpc("stats_depth",    { days:d }),
       rpc("stats_docs",     { days:Math.max(d,90) }),
+      rpc("stats_time",     { days:d }),
+      rpc("stats_time_chapters", { days:d }),
       rows("feedback?select=created_at,far,stuck,doc,center&order=created_at.desc&limit=50")
     ]);
 
     $("#stats").innerHTML =
       statCard("들어온 사람", ov.visitors, "기기 기준") +
       statCard("소설을 연 사람", ov.opened_novel) +
-      statCard("끝까지 읽은 사람", ov.finished_novel,
-               ov.opened_novel ? Math.round(ov.finished_novel / ov.opened_novel * 100) + "% 완독" : "") +
+      statCard("한 장이라도 끝낸 사람", ov.finished_any,
+               ov.opened_novel ? Math.round(ov.finished_any / ov.opened_novel * 100) + "% (연 사람 대비)" : "") +
+      statCard("소설을 다 읽은 사람", ov.finished_all,
+               `${ov.novel_ch}장 전부 · 완독 ${ov.opened_novel ? Math.round(ov.finished_all / ov.opened_novel * 100) : 0}%`) +
       statCard("실습을 연 사람", ov.opened_prac) +
       statCard("부탁을 복사한 사람", ov.copied, "실행한 증거") +
+      textCard("머문 시간 합계", dur((ov.stay_total_min || 0) * 60), "모두 더해서") +
       statCard("피드백", ov.feedback, "건");
 
     funnelRows("#funnel", [
-      ["들어옴",        ov.visitors],
-      ["소설 폄",       ov.opened_novel],
-      ["소설 끝냄",     ov.finished_novel],
-      ["실습 폄",       ov.opened_prac],
-      ["부탁 복사",     ov.copied],
-      ["AI 열기",       ov.opened_ai],
-      ["인쇄",          ov.printed]
+      ["들어옴",         ov.visitors],
+      ["소설 폄",        ov.opened_novel],
+      ["한 장 끝냄",     ov.finished_any],
+      [`소설 ${ov.novel_ch}장 완독`, ov.finished_all],
+      ["실습 폄",        ov.opened_prac],
+      ["부탁 복사",      ov.copied],
+      ["AI 열기",        ov.opened_ai],
+      ["인쇄",           ov.printed]
     ], ov.visitors);
 
-    funnelRows("#depth", (dp || []).map(r => [r.depth, r.people]));
+    /* ── 머문 시간 ── */
+    const byKind = {};
+    (tk || []).forEach(r => byKind[r.kind] = r);
+    const readCh = (tc || []).filter(r => r.kind !== "home");
+    const longest  = readCh[0];
+    const shortest = readCh[readCh.length - 1];
 
-    const kindName = { novel:"소설", concept:"개념서", practice:"실습" };
+    $("#timecards").innerHTML =
+      ["novel", "concept", "practice"].map(k => {
+        const r = byKind[k];
+        return textCard(KIND_NAME[k] + " 평균", r ? dur(r.avg_sec) : "—",
+          r ? `가운뎃값 ${dur(r.med_sec)} · ${num(r.views)}번 열림` : "아직 없음");
+      }).join("") +
+      textCard("제일 오래 머문 장", longest ? dur(longest.avg_sec) : "—",
+               longest ? `${chLabel(longest)} · ${num(longest.views)}번 열림` : "아직 없음") +
+      textCard("제일 빨리 지나친 장", shortest && shortest !== longest ? dur(shortest.avg_sec) : "—",
+               shortest && shortest !== longest
+                 ? `${chLabel(shortest)} · ${num(shortest.views)}번 열림` : "아직 없음") +
+      textCard("한 번 열면", ov.stay_avg ? dur(ov.stay_avg) : "—", "평균으로 이만큼");
+
+    $("#timekind").innerHTML =
+      `<tr><th>구분</th><th class="n">열람</th><th class="n">사람</th><th class="n">평균</th>
+           <th class="n">가운뎃값</th><th class="n">가장 길게</th><th class="n">가장 짧게</th></tr>` +
+      ((tk || []).map(r => `<tr>
+          <td>${esc(KIND_NAME[r.kind] || r.kind)}</td>
+          <td class="n">${num(r.views)}</td><td class="n">${num(r.people)}</td>
+          <td class="n"><b>${dur(r.avg_sec)}</b></td><td class="n">${dur(r.med_sec)}</td>
+          <td class="n">${dur(r.max_sec)}</td><td class="n">${dur(r.min_sec)}</td>
+        </tr>`).join("")
+        || `<tr><td colspan="7" style="color:var(--ink-faint)">아직 자료가 없습니다. (사이트를 새로 올리신 뒤부터 쌓입니다)</td></tr>`);
+
+    $("#timech").innerHTML =
+      `<tr><th>구분</th><th>장</th><th class="n">열람</th><th class="n">평균</th>
+           <th class="n">예상</th><th class="n">가장 길게</th><th class="n">가장 짧게</th></tr>` +
+      (readCh.map(r => {
+        const est = chMin(r) * 60;
+        const rel = est ? Math.round(r.avg_sec / est * 100) : null;
+        const warn = rel != null && (rel < 40 || rel > 200);
+        return `<tr>
+          <td>${r.part}부 ${esc(KIND_NAME[r.kind] || r.kind)}</td>
+          <td>${esc(chLabel(r))}</td>
+          <td class="n">${num(r.views)}</td>
+          <td class="n"><b>${dur(r.avg_sec)}</b></td>
+          <td class="n" style="${warn ? "color:var(--warm);font-weight:600" : "color:var(--ink-faint)"}">
+              ${est ? dur(est) + (rel != null ? ` (${rel}%)` : "") : "—"}</td>
+          <td class="n">${dur(r.max_sec)}</td>
+          <td class="n">${dur(r.min_sec)}</td>
+        </tr>`;
+      }).join("")
+        || `<tr><td colspan="7" style="color:var(--ink-faint)">아직 자료가 없습니다.</td></tr>`);
+
+    // 전체 열람을 100으로 놓아야 "열 번 열면 그중 몇 번"이 읽힙니다
+    const dpAll = (dp || []).reduce((s, r) => s + Number(r.views || 0), 0);
+    funnelRows("#depth", (dp || []).map(r => [r.depth, r.views]), dpAll);
+
     $("#chapters").innerHTML =
       `<tr><th>구분</th><th>장</th><th class="n">연 사람</th><th class="n">끝낸 사람</th>
-           <th style="width:110px">완료율</th></tr>` +
+           <th style="width:110px">완료율</th><th class="n">머문 시간</th></tr>` +
       (ch || []).map(r => {
         const pct = r.opened ? Math.round(r.finished / r.opened * 100) : 0;
-        return `<tr><td>${r.part}부 ${kindName[r.kind] || r.kind}</td>
-          <td>${esc(r.chapter)}</td>
+        return `<tr><td>${r.part}부 ${KIND_NAME[r.kind] || r.kind}</td>
+          <td>${esc(chLabel(r))}</td>
           <td class="n">${num(r.opened)}</td>
           <td class="n">${num(r.finished)}</td>
           <td><div class="mini"><i style="width:${pct}%"></i></div>
               <span style="font-size:13px;${pct < 40 ? "color:var(--warm);font-weight:600" : "color:var(--ink-faint)"}">${pct}%</span></td>
+          <td class="n">${r.avg_sec ? dur(r.avg_sec) : "—"}</td>
         </tr>`;
-      }).join("") || `<tr><td colspan="5" style="color:var(--ink-faint)">아직 자료가 없습니다.</td></tr>`;
+      }).join("") || `<tr><td colspan="6" style="color:var(--ink-faint)">아직 자료가 없습니다.</td></tr>`;
 
     const mx = Math.max(1, ...(dy || []).map(r => r.visitors));
     $("#spark").innerHTML = (dy || []).map(r =>
@@ -254,7 +381,7 @@ async function loadAll(){
 }
 
 (function(){
-  if(!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY){ show("setup"); return; }
+  if(!CONFIG.SUPABASE_URL || !KEY_OK){ show("setup"); return; }
   $("#go").onclick = login;
   $("#pw").addEventListener("keydown", e => { if(e.key === "Enter") login(); });
   $("#days").addEventListener("change", loadAll);
