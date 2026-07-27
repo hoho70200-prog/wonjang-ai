@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">   <!-- 검수 중 검색 차단. 공개할 때 이 줄만 지우세요 -->
 <title>실습 — 원장님 AI</title>
-<link rel="stylesheet" href="assets/style.css?v=2607271020">
+<link rel="stylesheet" href="assets/style.css?v=2607271530">
 <style>
   .recall{background:var(--accent-soft); border-radius:10px; padding:14px 18px; margin:1.4em 0;}
   .recall .rl{font-size:14px; color:var(--accent-dark); font-weight:600; margin-bottom:4px;}
@@ -32,7 +32,7 @@
   <footer>「손으로 쓰는 AI」 · 적으신 내용은 이 기기에만 남습니다</footer>
 </div>
 
-<script src="assets/app.js?v=2607271020"></script>
+<script src="assets/app.js?v=2607271530"></script>
 <script>
 const PART = parseInt(qs("part") || "1", 10);
 const ID   = qs("id") || "1-0";
@@ -254,7 +254,8 @@ function wire(){
 
   $("#done").onclick = () => {
     Progress.mark("practice", PART, ID);
-    track("practice_done", { part: PART, chapter: ID });
+    track("practice_done", { part: PART, chapter: ID, kind: "practice",
+                             value: "버튼 · " + Dwell.sec() + "초" });
     toast("표시했습니다");
     $("#done").textContent = "마치셨습니다 ✓";
     $("#done").disabled = true; $("#done").style.opacity = ".6";
@@ -265,8 +266,10 @@ function wire(){
   }
 
   wire();
-  watchScroll({ part: PART, chapter: ID, kind: "practice" });
-  track("practice_open", { part: PART, chapter: ID });
+  // 실습은 손으로 적는 시간이 있으니, 예상 시간의 40%를 그대로 기준으로 씁니다
+  watchScroll({ part: PART, chapter: ID, kind: "practice" },
+              parseInt(ITEM.time, 10) || 15);
+  track("practice_open", { part: PART, chapter: ID, kind: "practice" });
 })();
 </script>
 </body>
