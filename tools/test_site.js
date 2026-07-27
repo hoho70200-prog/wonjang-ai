@@ -43,7 +43,7 @@ async function open(file, query){
   const appjs = fs.readFileSync(path.join(WEB, "assets/app.js"), "utf8");
   // 치환 함수를 쓰는 것이 중요합니다 — 문자열로 넘기면 app.js 안의 $$가 $로 삼켜집니다
   const html = fs.readFileSync(path.join(WEB, file), "utf8")
-    .replace('<script src="assets/app.js"></script>',
+    .replace(/<script src="assets\/app\.js[^"]*"><\/script>/,
              () => "<script>" + appjs.replace(/<\/script>/g, "<\\/script>") + "</script>");
 
   const dom = new JSDOM(html, {
@@ -79,6 +79,13 @@ const n   = (d, sel) => d.querySelectorAll(sel).length;
     check(d.body.textContent.includes("영란 원장"), "홈 — 제목");
     check(n(d, ".part") === 6, `홈 — 6개 부 (실제 ${n(d, ".part")})`);
     check(n(d, ".toc-item") >= 24, `홈 — 1부 목차 ${n(d, ".toc-item")}개`);
+    check(n(d, ".toc-group") === 8, `홈 — 단계 ${n(d, ".toc-group")}개`);
+    check(d.body.textContent.includes("책상을 차리다") &&
+          d.body.textContent.includes("비품을 세다"), "홈 — 단계 이름 표시");
+    check(n(d, ".modes button") === 2, "홈 — 보기 전환 버튼 2개");
+    const firstStage = d.querySelector(".toc-group");
+    check(firstStage.textContent.includes("소설") && firstStage.textContent.includes("실습"),
+          "홈 — 한 단계 안에 소설과 실습이 함께 있음");
     check(d.querySelector("#welcome").style.display === "block", "홈 — 첫 방문 안내");
     const locked = d.querySelectorAll(".part")[1];
     check(locked.querySelectorAll(".toc-item").length === 0, "홈 — 2부는 잠김");
@@ -88,13 +95,78 @@ const n   = (d, sel) => d.querySelectorAll(sel).length;
 
   /* ── 소설 ── */
   {
-    const { d, errs } = await open("read.html", "kind=novel&part=1&ch=1");
+    const { w, d, errs } = await open("read.html", "kind=novel&part=1&ch=1");
     check(d.body.textContent.includes("금요일 밤의 원장실"), "소설 — 제목");
     check(n(d, ".body p") > 20, `소설 — 본문 ${n(d, ".body p")}문단`);
     check(n(d, ".fsize button") === 3, "소설 — 글자 크기 버튼");
     check(d.body.textContent.includes("읽는 시간"), "소설 — 읽는 시간 표시");
     check(n(d, ".nextnav a") >= 2, "소설 — 다음 장 안내");
+
+    // 머문 시간 — 켜져 있는지, 완독 기준이 장 길이를 따라가는지
+    const ev = (s) => { try{ return w.eval(s); }catch(e){ return "오류: " + e.message; } };
+    check(ev("typeof Dwell") === "object", "소설 — 머문 시간 시계가 붙음");
+    check(ev("needSec(7)") === 168,  `소설 — 7분짜리 장은 168초 기준 (실제 ${ev("needSec(7)")})`);
+    check(ev("needSec(1)") === 45,   `소설 — 아무리 짧아도 45초 (실제 ${ev("needSec(1)")})`);
+    check(ev("needSec(30)") === 240, `소설 — 아무리 길어도 240초 (실제 ${ev("needSec(30)")})`);
     check(!errs.length, `소설 — 오류 없음 ${errs.slice(0,1)}`);
+  }
+
+  /* ── 소설만 이어 읽기 ── */
+  {
+    STORE["wai_mode"] = JSON.stringify("novel");
+    const { d } = await open("index.html");
+    check(n(d, ".toc-group") === 1, `소설만 보기 — 묶음 1개 (실제 ${n(d, ".toc-group")})`);
+    check(n(d, ".toc-item") === 10, `소설만 보기 — 소설 10장만 (실제 ${n(d, ".toc-item")})`);
+    check(!d.body.textContent.includes("책상을 차리다"), "소설만 보기 — 단계 이름 숨김");
+
+    const { d: r } = await open("read.html", "kind=novel&part=1&ch=1");
+    const nav = r.querySelector(".nextnav a");
+    check(nav && nav.getAttribute("href").includes("kind=novel") &&
+          nav.getAttribute("href").includes("ch=2"),
+          `소설만 보기 — 1장 다음이 2장 (${nav ? nav.getAttribute("href") : "없음"})`);
+    check(r.body.textContent.includes("소설만 이어 읽기"), "소설만 보기 — 되돌아가는 안내 있음");
+    STORE["wai_mode"] = JSON.stringify("stage");
+  }
+
+  /* ── 단계 흐름: 소설 1장 다음은 실습 0 ── */
+  {
+    const { d } = await open("read.html", "kind=novel&part=1&ch=1");
+    const nav = d.querySelector(".nextnav a");
+    check(nav && nav.getAttribute("href").includes("practice.html") &&
+          nav.getAttribute("href").includes("id=1-0"),
+          `단계 흐름 — 소설 1장 → 실습 0 (${nav ? nav.getAttribute("href") : "없음"})`);
+    check(d.querySelector(".top .now").textContent.includes("책상을 차리다"),
+          "단계 흐름 — 상단에 단계 이름");
+  }
+
+  /* ── 단계 흐름: 실습 0 다음은 소설 2장 ── */
+  {
+    const { d } = await open("practice.html", "part=1&id=1-0");
+    const nav = d.querySelector(".nextnav a");
+    check(nav && nav.getAttribute("href").includes("kind=novel") &&
+          nav.getAttribute("href").includes("ch=2"),
+          `단계 흐름 — 실습 0 → 소설 2장 (${nav ? nav.getAttribute("href") : "없음"})`);
+  }
+
+  /* ── 단계 흐름: 개념서 1장 다음은 실습 1 ── */
+  {
+    const { d } = await open("read.html", "kind=concept&part=1&ch=1");
+    const nav = d.querySelector(".nextnav a");
+    check(nav && nav.getAttribute("href").includes("id=1-1"),
+          `단계 흐름 — 개념서 1장 → 실습 1 (${nav ? nav.getAttribute("href") : "없음"})`);
+  }
+
+  /* ── 소설에 프롬프트 상자가 섞이지 않았는지 (대사 오분류 방지) ── */
+  {
+    const fs2 = require("fs");
+    const p1 = JSON.parse(fs2.readFileSync(path.join(WEB, "assets/content/part1.json"), "utf8"));
+    const bad = p1.novel.flatMap(c => c.blocks.filter(b => b.t === "prompt")).length;
+    check(bad === 0, `소설 — 대사가 프롬프트 상자로 잘못 잡히지 않음 (${bad}건)`);
+    const okc = p1.concept.flatMap(c => c.blocks.filter(b => b.t === "prompt")).length;
+    check(okc > 0, `개념서 — 진짜 예시 부탁은 상자로 남음 (${okc}건)`);
+    const { d } = await open("read.html", "kind=novel&part=1&ch=1");
+    check(n(d, ".pbox") === 0, "소설 화면 — 검은 상자 없음");
+    check(d.body.textContent.includes("물놀이"), "소설 화면 — 대사가 본문에 있음");
   }
 
   /* ── 개념서 ── */
@@ -195,6 +267,22 @@ const n   = (d, sel) => d.querySelectorAll(sel).length;
     await new Promise(r => setTimeout(r, 200));
     const done = JSON.parse(STORE["wai_done"] || "{}");
     check(!done["novel-1-5"], "읽기 — 열자마자 완독 처리되지 않음 (머문 시간 조건)");
+
+    STORE["wai_done"] = "{}";
+    const { d: p } = await open("practice.html", "part=1&id=1-4");
+    await new Promise(r => setTimeout(r, 200));
+    check(!JSON.parse(STORE["wai_done"] || "{}")["practice-1-1-4"],
+          "실습 — 열자마자 완료 처리되지 않음");
+  }
+
+  /* ── 내 기기를 통계에서 빼는 스위치 ── */
+  {
+    const { w } = await open("index.html", "tester=1");
+    check(STORE["wai_tester"] === "1", "통계 제외 — ?tester=1 로 켜짐");
+    check(!!w.document.getElementById("tester-badge"), "통계 제외 — 화면에 딱지 표시");
+    const { w: w2 } = await open("index.html", "tester=0");
+    check(STORE["wai_tester"] === "0", "통계 제외 — ?tester=0 으로 풀림");
+    check(!w2.document.getElementById("tester-badge"), "통계 제외 — 풀리면 딱지 사라짐");
   }
 
   /* ── 진도 반영 ── */
@@ -208,17 +296,28 @@ const n   = (d, sel) => d.querySelectorAll(sel).length;
     check(n(d, "#resume .btn") === 1, "홈 — 이어서 하기 카드");
     check(txt(d, ".prog .pct") !== "0%", `홈 — 1부 진도 ${txt(d, ".prog .pct")}`);
     check(n(d, ".toc-item.done") === 2, `홈 — 읽은 장 ✓ 표시 ${n(d, ".toc-item.done")}개`);
+    check([...d.querySelectorAll(".toc-item")].every(a => !a.getAttribute("href").includes("undefined")),
+          "홈 — 모든 링크에 부 번호가 들어감");
     check(d.querySelector("#welcome").style.display !== "block",
           "홈 — 재방문자에겐 첫 방문 안내를 안 띄움");
     const nextTitle = txt(d, "#resume p:nth-of-type(2)");
-    check(nextTitle.includes("3장"), `홈 — 이어서 할 곳이 정확함 (${nextTitle.trim()})`);
+    check(nextTitle.includes("실습 0"),
+          `홈 — 이어서 할 곳이 단계 순서를 따름 (${nextTitle.trim()})`);
   }
 
   /* ── 관리자 ── */
   {
     const { d } = await open("admin.html");
-    check(d.querySelector("#setup").style.display === "block", "관리자 — 설정 전 안내 화면");
-    check(d.querySelector("#dash").style.display === "none", "관리자 — 대시보드 숨김");
+    // CONFIG는 const라 window에 안 붙으므로 app.js 원문으로 판단합니다.
+    // 주소만 있고 키가 자리표시자면 아직 '설정 전'입니다 — 통계가 한 건도 안 쌓입니다.
+    const cfg = fs.readFileSync(path.join(WEB, "assets/app.js"), "utf8");
+    const configured = /SUPABASE_URL:\s*"https?:\/\//.test(cfg) &&
+                       /SUPABASE_ANON_KEY:\s*"(eyJ|sb_)/.test(cfg);
+    const shown = configured ? "#login" : "#setup";
+    check(d.querySelector(shown).style.display === "block",
+          configured ? "관리자 — 로그인 화면 표시"
+                     : "관리자 — 설정 전 안내 화면 (이 폴더 app.js에는 키가 없는 것이 정상)");
+    check(d.querySelector("#dash").style.display === "none", "관리자 — 로그인 전엔 대시보드 숨김");
   }
 
   /* ── 파일 존재 ── */
