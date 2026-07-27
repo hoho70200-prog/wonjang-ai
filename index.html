@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">   <!-- 검수 중 검색 차단. 공개할 때 이 줄만 지우세요 -->
 <title>원장님 AI — 영란 원장, AI와 일하다</title>
 <meta name="description" content="어린이집 원장님을 위한 AI 교재. 소설로 읽고, 개념서로 이해하고, 손으로 실습합니다.">
-<link rel="stylesheet" href="assets/style.css?v=2607271020">
+<link rel="stylesheet" href="assets/style.css?v=2607271530">
 </head>
 <body>
 
@@ -77,7 +77,7 @@
 
 </div>
 
-<script src="assets/app.js?v=2607271020"></script>
+<script src="assets/app.js?v=2607271530"></script>
 <script>
 let INDEX = null, PRACTICE = null, FIRST = null;
 
@@ -202,7 +202,7 @@ function sendFeedback(){
 
   track("feedback", { value: (d.far || "-") + " / " + (d.doc || "-") });
 
-  if(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY){
+  if(CONFIG.SUPABASE_URL && KEY_OK && !isTester()){
     fetch(CONFIG.SUPABASE_URL.replace(/\/$/,"") + "/rest/v1/feedback", {
       method:"POST",
       headers:{ "Content-Type":"application/json",
@@ -227,6 +227,7 @@ function sendFeedback(){
   if(fresh) $("#welcome").style.display = "block";
   render();
   track("home_view", { value: document.referrer ? document.referrer.slice(0,120) : "직접" });
+  Dwell.start({ kind: "home" });   // 목차를 얼마나 들여다보고 고르시는지
 })();
 </script>
 </body>
