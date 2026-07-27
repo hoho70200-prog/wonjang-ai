@@ -24,18 +24,23 @@
     <b style="color:var(--ink)">소설</b>을 한 장 읽고 →
     <b style="color:var(--ink)">개념서</b>로 그 장의 원리를 확인하고 →
     <b style="color:var(--ink)">실습</b>에서 직접 해 봅니다.
-    한 번에 다 하실 필요 없습니다. 한 장이 6~7분입니다.
+    이 셋을 묶어 <b style="color:var(--ink)">한 단계</b>라고 부릅니다. 1부는 여덟 단계입니다.
+    한 번에 다 하실 필요 없습니다. 한 단계가 삼십 분 남짓입니다.
   </p>
   <p style="margin:0 0 12px; color:var(--ink-soft)">
     읽으신 곳은 저절로 표시되고, 실습에 적으신 내용은 이 기기에 남습니다.
     나갔다 오셔도 이어서 하실 수 있습니다.
   </p>
   <div class="btn-row">
-    <button class="btn" onclick="startHere()">1부 1장부터 시작하기</button>
+    <button class="btn" onclick="startHere()">1단계부터 시작하기</button>
     <button class="btn-ghost" onclick="hideWelcome()">목차만 볼게요</button>
   </div>
+  <p style="margin:12px 0 0; color:var(--ink-soft); font-size:15px">
+    이야기부터 쭉 읽고 싶으시면 아래에서 <b style="color:var(--ink)">소설만 이어 읽기</b>를 고르십시오.
+  </p>
 </div>
 
+<div id="modebar"></div>
 <div id="resume"></div>
 <div id="parts"><div class="loading">불러오는 중…</div></div>
 
@@ -84,43 +89,45 @@ function itemHref(kind, part, ch){
     : `read.html?kind=${kind}&part=${part}&ch=${ch}`;
 }
 
-function row(kind, part, it){
-  const ch    = kind === "practice" ? it.id : it.ch;
-  const done  = Progress.has(kind, part, ch);
-  const label = kind === "practice"
-    ? `실습 ${it.no} · ${it.title}`
-    : (kind === "novel" ? `${it.ch}장 · ${it.title}` : `${it.ch === 99 ? "" : it.ch + "장 · "}${it.title}`);
-  const sub   = it.sub ? `<small>${esc(it.sub)}</small>` : "";
-  const mins  = kind === "practice" ? it.time : it.minutes + "분";
-  return `<a class="toc-item${done ? " done" : ""}" href="${itemHref(kind, part, ch)}"
-             data-kind="${kind}" data-part="${part}" data-ch="${esc(String(ch))}">
+const KIND_TAG = { novel:"소설", concept:"개념서", practice:"실습" };
+
+function row(it){
+  const done = Flow.done(it);
+  const num  = it.kind === "practice" ? it.no : (it.ch === 99 ? "부록" : it.ch + "장");
+  const mins = it.kind === "practice" ? (it.time || "") : it.minutes + "분";
+  const sub  = it.sub ? `<small>${esc(it.sub)}</small>` : "";
+  return `<a class="toc-item${done ? " done" : ""}" href="${Flow.href(it)}">
       <span class="dot">${done ? "✓" : ""}</span>
-      <span class="t">${esc(label)}${sub}</span>
+      <span class="t"><span class="kindtag">${KIND_TAG[it.kind]}</span>${esc(num)} · ${esc(it.title)}${sub}</span>
       <span class="m">${esc(mins)}</span>
     </a>`;
 }
 
-function group(title, kind, part, items){
-  if(!items || !items.length) return "";
-  const done = items.filter(it =>
-    Progress.has(kind, part, kind === "practice" ? it.id : it.ch)).length;
-  return `<div class="toc-group">
-      <div class="toc-title"><span>${esc(title)}</span>
-           <span style="font-weight:400">${done} / ${items.length}</span></div>
-      ${items.map(it => row(kind, part, it)).join("")}
+function stageBlock(s, partN){
+  // 단계 안의 항목에는 부 번호가 없으므로 여기서 붙여 줍니다
+  const items = s.items.map(it => Object.assign({ part: partN }, it));
+  const done  = items.filter(Flow.done).length;
+  return `<div class="toc-group${done === items.length ? " stage-done" : ""}">
+      <div class="toc-title">
+        <span><span class="stage-n">${s.n}</span>${esc(s.name)}</span>
+        <span style="font-weight:400">${done} / ${items.length}</span>
+      </div>
+      ${items.map(row).join("")}
     </div>`;
 }
 
 function render(){
-  const prac = {};
-  (PRACTICE.parts || []).forEach(p => prac[p.n] = p.items);
+  const mode = Mode.get();
+  $("#modebar").innerHTML = `
+    <div class="modes">
+      <button class="${mode === "stage" ? "on" : ""}" onclick="setMode('stage')">단계로 보기</button>
+      <button class="${mode === "novel" ? "on" : ""}" onclick="setMode('novel')">소설만 이어 읽기</button>
+    </div>
+    <p class="modehint">${mode === "stage"
+      ? "소설을 읽고 → 원리를 확인하고 → 손으로 해 봅니다. 위에서 아래로 따라가시면 됩니다."
+      : "이야기만 10장 이어서 읽습니다. 개념서와 실습은 잠시 접어 둡니다."}</p>`;
 
-  const html = INDEX.parts.map(p => {
-    const pr = prac[p.n] || [];
-    const pct = p.open ? Progress.partPct(p.n, {
-      novel: p.novel, concept: p.concept, practice: pr.map(i => i.id)
-    }) : 0;
-
+  $("#parts").innerHTML = INDEX.parts.map(p => {
     if(!p.open){
       return `<div class="part">
         <div class="part-head"><h2>${p.n}부 · ${esc(p.title)}</h2>
@@ -128,58 +135,53 @@ function render(){
         <p class="part-desc">소설 ${p.novel.length}장 · 개념서 ${p.concept.length}장 — 곧 열립니다.</p>
       </div>`;
     }
-
+    const pct = Progress.partPct(p, mode);
+    const body = (mode === "stage" && p.stages)
+      ? p.stages.map(s => stageBlock(s, p.n)).join("")
+      : `<div class="toc-group">
+           <div class="toc-title"><span>소설 — 이야기로 이어 읽기</span>
+             <span style="font-weight:400">${Flow.seq(p, "novel").filter(Flow.done).length} / ${p.novel.length}</span></div>
+           ${Flow.seq(p, "novel").map(row).join("")}
+         </div>`;
     return `<div class="part">
       <div class="part-head"><h2>${p.n}부 · ${esc(p.title)}</h2>
            <span class="tag open">읽는 중</span></div>
       <div class="prog"><div class="track"><div class="fill" style="width:${pct}%"></div></div>
            <span class="pct">${pct}%</span></div>
       <div style="height:14px"></div>
-      <div class="toc">
-        ${group("소설 — 이야기로 만나기", "novel", p.n, p.novel)}
-        ${group("개념서 — 원리로 확인하기", "concept", p.n, p.concept)}
-        ${group("실습 — 손으로 해 보기", "practice", p.n, pr)}
-      </div>
+      <div class="toc">${body}</div>
     </div>`;
   }).join("");
 
-  $("#parts").innerHTML = html;
   renderResume();
 }
 
-function allOpenItems(){
-  const out = [];
-  const prac = {};
-  (PRACTICE.parts || []).forEach(p => prac[p.n] = p.items);
-  INDEX.parts.filter(p => p.open).forEach(p => {
-    p.novel.forEach(c   => out.push({ kind:"novel",   part:p.n, ch:c.ch, title:`${p.n}부 ${c.ch}장 「${c.title}」` }));
-    p.concept.forEach(c => out.push({ kind:"concept", part:p.n, ch:c.ch, title:`개념서 ${p.n}편 ${c.ch}장 「${c.title}」` }));
-    (prac[p.n] || []).forEach(i => out.push({ kind:"practice", part:p.n, ch:i.id, title:`실습 ${i.no} 「${i.title}」` }));
-  });
-  return out;
+function setMode(m){
+  Mode.set(m);
+  track("mode_change", { value: m });
+  render();
 }
 
-function nextUp(){
-  return allOpenItems().find(i => !Progress.has(i.kind, i.part, i.ch));
-}
+function nextUp(){ return Flow.all(INDEX).find(it => !Flow.done(it)); }
 
 function renderResume(){
-  const items = allOpenItems();
-  const doneN = items.filter(i => Progress.has(i.kind, i.part, i.ch)).length;
+  const seq = Flow.all(INDEX);
+  const doneN = seq.filter(Flow.done).length;
   const n = nextUp();
   if(!n || doneN === 0){ $("#resume").innerHTML = ""; return; }
+  const where = n.stage ? `${n.stageN}단계 「${n.stage}」 · ` : "";
   $("#resume").innerHTML = `<div class="card" style="border-color:var(--accent)">
-      <p style="margin:0 0 4px; color:var(--ink-soft); font-size:15px">여기까지 하셨습니다 — ${doneN} / ${items.length}</p>
-      <p style="margin:0 0 14px; font-size:19px; font-weight:600">${esc(n.title)}</p>
+      <p style="margin:0 0 4px; color:var(--ink-soft); font-size:15px">여기까지 하셨습니다 — ${doneN} / ${seq.length}</p>
+      <p style="margin:0 0 14px; font-size:19px; font-weight:600">${esc(where)}${esc(Flow.label(n))}</p>
       <a class="btn" style="display:inline-block; text-decoration:none"
-         href="${itemHref(n.kind, n.part, n.ch)}" onclick="track('resume_click')">이어서 하기</a>
+         href="${Flow.href(n)}" onclick="track('resume_click')">이어서 하기</a>
     </div>`;
 }
 
 function startHere(){
-  const n = nextUp() || { kind:"novel", part:1, ch:1 };
+  const n = nextUp();
   track("start_click");
-  location.href = itemHref(n.kind, n.part, n.ch);
+  location.href = n ? Flow.href(n) : "read.html?kind=novel&part=1&ch=1";
 }
 function hideWelcome(){
   Store.set("seen_welcome", 1);

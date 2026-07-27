@@ -56,7 +56,7 @@ function renderChecks(html){
 
 function navCard(item, label){
   if(!item) return "";
-  return `<a href="${item.href}" onclick="track('next_click',{kind:'${item.kind}'})">
+  return `<a href="${esc(item.href)}" onclick="track('next_click',{kind:'${item.kind}'})">
       <small>${esc(label)}</small><b>${esc(item.title)}</b></a>`;
 }
 
@@ -75,7 +75,12 @@ function navCard(item, label){
   const kindName = KIND === "novel" ? "소설" : "개념서";
   const chLabel  = c.ch === 99 ? "부록" : c.ch + "장";
 
-  topBar("index.html", "목차", `${PART}부 · ${kindName} ${chLabel}`);
+  const stg = (idx.parts.find(p => p.n === PART) || {}).stages || [];
+  const myStage = stg.find(s2 => s2.items.some(x => x.kind === KIND && x.ch === CH));
+  topBar("index.html", "목차",
+    myStage && Mode.get() === "stage"
+      ? `${myStage.n}단계 · ${myStage.name}`
+      : `${PART}부 · ${kindName} ${chLabel}`);
 
   // 글자 크기
   const fs = document.createElement("div");
@@ -114,16 +119,20 @@ function navCard(item, label){
     track("prompt_copy", { part: PART, chapter: CH, kind: KIND });
   });
 
-  // 다음으로
-  const nx = list[i + 1];
-  const other = KIND === "novel" ? "concept" : "novel";
-  const twin = (data[other] || []).find(x => x.ch === c.ch);
+  // 다음으로 — 읽는 방식에 맞춰 흐름을 따라갑니다
+  const mode = Mode.get();
+  const seq  = Flow.all(idx, mode);
+  const here = Flow.at(seq, KIND, PART, CH);
+  const nx   = here >= 0 ? seq[here + 1] : null;
 
   const cards = [];
-  if(nx) cards.push({ href:`read.html?kind=${KIND}&part=${PART}&ch=${nx.ch}`, kind:KIND,
-                      title:`${nx.ch === 99 ? "부록" : nx.ch + "장"} · ${nx.title}` });
-  if(twin) cards.push({ href:`read.html?kind=${other}&part=${PART}&ch=${twin.ch}`, kind:other,
-                        title:`${twin.ch}장 · ${twin.title}` });
+  if(nx){
+    const sameStage = nx.stage && seq[here] && seq[here].stage === nx.stage;
+    cards.push({ href: Flow.href(nx), kind: nx.kind,
+                 label: sameStage ? `${nx.stageN}단계 · 이어서`
+                                  : (nx.stage ? `${nx.stageN}단계 「${nx.stage}」` : "다음 장"),
+                 title: Flow.label(nx) });
+  }
 
   $("#after").innerHTML = `
     <div class="btn-row" style="margin-top:34px">
@@ -131,10 +140,12 @@ function navCard(item, label){
       <button class="btn-ghost" onclick="track('print',{part:${PART},chapter:${CH},kind:'${KIND}'});window.print()">종이로 인쇄</button>
     </div>
     <div class="nextnav">
-      ${cards.map((c2, n) => navCard(c2, n === 0
-          ? (nx ? "다음 장" : "이어서") : (other === "concept" ? "같은 장을 원리로" : "같은 장을 이야기로"))).join("")}
+      ${cards.map(c2 => navCard(c2, c2.label)).join("")}
       <a href="index.html"><small>전체</small><b>목차로 돌아가기</b></a>
-    </div>`;
+    </div>
+    ${mode === "novel" ? `<p style="text-align:center; margin:18px 0 0; font-size:15px; color:var(--ink-soft)">
+        지금은 <b>소설만 이어 읽기</b>입니다 —
+        <a href="index.html" onclick="Mode.set('stage')">개념서와 실습도 함께 보기</a></p>` : ""}`;
 
   const meta = { part: PART, chapter: CH, kind: KIND };
   $("#done").onclick = () => {

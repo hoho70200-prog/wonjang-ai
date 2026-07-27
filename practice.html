@@ -191,7 +191,11 @@ function wire(){
   ITEM = PARTITEMS.find(i => i.id === ID);
   if(!ITEM){ fail("이 실습을 찾지 못했습니다."); return; }
 
-  topBar("index.html", "목차", `${PART}부 · 실습 ${ITEM.no}`);
+  const stg0 = ((idx.parts.find(p2 => p2.n === PART) || {}).stages || [])
+                 .find(s2 => s2.items.some(x => x.kind === "practice" && x.id === ID));
+  topBar("index.html", "목차",
+    stg0 && Mode.get() === "stage" ? `${stg0.n}단계 · ${stg0.name}`
+                                   : `${PART}부 · 실습 ${ITEM.no}`);
   document.title = `실습 ${ITEM.no} ${ITEM.title} — 원장님 AI`;
 
   $("#head").innerHTML = `
@@ -222,8 +226,11 @@ function wire(){
   if(ITEM.stuck)     notes.push(["막혔을 때", ITEM.stuck]);
   if(ITEM.principle) notes.push(["원칙 한 줄 점검", ITEM.principle]);
 
-  const i = PARTITEMS.findIndex(x => x.id === ID);
-  const nx = PARTITEMS[i + 1];
+  const seq  = Flow.all(idx, Mode.get());
+  const here = Flow.at(seq, "practice", PART, ID);
+  const nx   = here >= 0 ? seq[here + 1] : null;
+  const myStage = ((idx.parts.find(p2 => p2.n === PART) || {}).stages || [])
+                    .find(s2 => s2.items.some(x => x.kind === "practice" && x.id === ID));
 
   $("#after").innerHTML = `
     ${checkHtml ? `<div class="check"><h3>확인하고 넘어가기</h3>${checkHtml}</div>` : ""}
@@ -233,10 +240,10 @@ function wire(){
       <button class="btn-ghost" onclick="track('print',{part:${PART},chapter:'${ID}'});window.print()">종이로 인쇄</button>
     </div>
     <div class="nextnav">
-      ${nx ? `<a href="practice.html?part=${PART}&id=${nx.id}" onclick="track('next_click',{kind:'practice'})">
-                <small>다음 실습</small><b>실습 ${esc(nx.no)} · ${esc(nx.title)}</b></a>` : ""}
-      ${ITEM.next ? `<a href="index.html"><small>다음</small><b>${esc(ITEM.next.split("」")[0].replace(/^실습\s*\d+\s*「/, "").slice(0, 30))}</b></a>`
-                  : `<a href="index.html"><small>전체</small><b>목차로 돌아가기</b></a>`}
+      ${nx ? `<a href="${esc(Flow.href(nx))}" onclick="track('next_click',{kind:'${nx.kind}'})">
+                <small>${esc(nx.stage ? nx.stageN + "단계 「" + nx.stage + "」" : "다음")}</small>
+                <b>${esc(Flow.label(nx))}</b></a>` : ""}
+      <a href="index.html"><small>전체</small><b>목차로 돌아가기</b></a>
     </div>`;
 
   $$(".check input").forEach(c => c.onchange = () => {
